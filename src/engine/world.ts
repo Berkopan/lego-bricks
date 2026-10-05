@@ -403,37 +403,60 @@ export class BrickWorld {
     if (!this.held.has(id)) return null;
     const root = this.get(id);
     type Fit = NonNullable<ReturnType<typeof mating>>;
-    let best: { upper: Brick; lower: Brick; surfaceFit: Fit; fit: Fit } | null =
-      null;
+    let best: {
+      upper: Brick;
+      lower: Brick;
+      stationary: Brick;
+      surfaceFit: Fit;
+      fit: Fit;
+    } | null = null;
     let bestDistance = Infinity;
-    // The grabbed member need not be the member exposing the mating sockets.
+    // Any held member can supply either sockets (above) or studs (below).
     for (const member of this.held)
-      for (const lower of this.bricks) {
-        if (this.held.has(lower.id)) continue;
-        const upper = this.get(member),
-          surfaceFit = mating(upper, lower, 0.65, true);
-        if (!surfaceFit) continue;
-        const distance = surfaceFit.position.distanceToSquared(upper.position);
-        if (distance >= bestDistance) continue;
-        const delta = surfaceFit.rotation
-          .clone()
-          .multiply(upper.rotation.clone().invert());
-        // Convert the contact member's target into the selected root's target,
-        // preserving every internal relative transform during the press stroke.
-        const fit = {
-          ...surfaceFit,
-          position: root.position
-            .clone()
-            .sub(upper.position)
-            .applyQuaternion(delta)
-            .add(surfaceFit.position),
-          rotation: delta.clone().multiply(root.rotation),
-        };
-        // Do not advertise an alignment that would drive another assembly member
-        // into the floor or an obstacle. Try other contact members if blocked.
-        if (!this.sweptPoses(id, fit.position, fit.rotation)) continue;
-        best = { upper, lower, surfaceFit, fit };
-        bestDistance = distance;
+      for (const stationary of this.bricks) {
+        if (this.held.has(stationary.id)) continue;
+        const moving = this.get(member);
+        for (const fromBelow of [false, true]) {
+          const upper = fromBelow ? stationary : moving;
+          const lower = fromBelow ? moving : stationary;
+          const contact = mating(upper, lower, 0.65, true);
+          if (!contact) continue;
+          // mating gives the upper target with the lower fixed. Invert that
+          // rigid transform when holding the lower, keeping the upper in place.
+          const delta = fromBelow
+            ? upper.rotation.clone().multiply(contact.rotation.clone().invert())
+            : contact.rotation
+                .clone()
+                .multiply(upper.rotation.clone().invert());
+          const position = fromBelow
+            ? lower.position
+                .clone()
+                .sub(contact.position)
+                .applyQuaternion(delta)
+                .add(upper.position)
+            : contact.position;
+          const distance = position.distanceToSquared(moving.position);
+          if (distance >= bestDistance) continue;
+          const fit = {
+            ...contact,
+            position: root.position
+              .clone()
+              .sub(moving.position)
+              .applyQuaternion(delta)
+              .add(position),
+            rotation: delta.clone().multiply(root.rotation),
+          };
+          if (!this.sweptPoses(id, fit.position, fit.rotation)) continue;
+          const surfaceFit = fromBelow
+            ? {
+                ...contact,
+                position: upper.position.clone(),
+                rotation: upper.rotation.clone(),
+              }
+            : contact;
+          best = { upper, lower, stationary, surfaceFit, fit };
+          bestDistance = distance;
+        }
       }
     return best;
   }
@@ -469,12 +492,18 @@ export class BrickWorld {
     // A wide brick may engage several independent supports with the same press.
     const contacts: { a: Brick; b: Brick; studs: number }[] = [];
     for (const i of this.held)
-      for (const lower of this.bricks) {
-        if (this.held.has(lower.id)) continue;
-        const upper = this.get(i),
-          fit = mating(upper, lower, 0.06);
-        if (fit && fit.position.distanceTo(upper.position) < 0.04)
-          contacts.push({ a: upper, b: lower, studs: fit.count });
+      for (const other of this.bricks) {
+        if (this.held.has(other.id)) continue;
+        const moving = this.get(i);
+        // Links always store upper -> lower, regardless of which side is held.
+        for (const [upper, lower] of [
+          [moving, other],
+          [other, moving],
+        ]) {
+          const fit = mating(upper, lower, 0.06);
+          if (fit && fit.position.distanceTo(upper.position) < 0.04)
+            contacts.push({ a: upper, b: lower, studs: fit.count });
+        }
       }
     if (!contacts.length) return false;
     for (const c of contacts) this.connect(c.a, c.b, c.studs);

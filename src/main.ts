@@ -102,7 +102,7 @@ let selected: Brick | null = null,
 let pressing: null | {
   start: number;
   id: number;
-  lower: number;
+  anchor: number;
   origin: T.Vector3;
   target: T.Vector3;
   fromRotation: T.Quaternion;
@@ -405,7 +405,7 @@ function startPress() {
   pressing = {
     start: performance.now(),
     id: selected.id,
-    lower: c.lower.id,
+    anchor: c.stationary.id,
     origin: selected.position.clone(),
     target: c.fit.position.clone(),
     fromRotation: selected.rotation.clone(),
@@ -757,8 +757,8 @@ function frame(now: number) {
     const p = pressing,
       t = Math.min(1, (now - p.start) / 450),
       b = world.get(p.id),
-      lower = world.get(p.lower);
-    if (!b || !lower || !world.held.has(b.id)) {
+      anchor = world.get(p.anchor);
+    if (!b || !anchor || !world.held.has(b.id)) {
       cancelPress();
     } else {
       const progress = t * t * (3 - 2 * t);

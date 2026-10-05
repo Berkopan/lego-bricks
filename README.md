@@ -11,7 +11,7 @@ Built with TypeScript, Three.js, and Rapier. Runs entirely in the browser and bu
 - Dynamic gravity, friction, collision response, tumbling, and continuous collision detection.
 - A collapsible library on the right. New bricks appear held above the work surface.
 - Free movement rather than world-grid placement. Connector alignment is checked in the target brick's local coordinates.
-- Explicit press-to-connect: correct positioning alone never creates a joint. Click **Press to connect** or hold **Space**; a short downward stroke ends with recorded LEGO audio.
+- Explicit press-to-connect: correct positioning alone never creates a joint. Click **Press to connect** or hold **Space**; a short press stroke toward the mating surface ends with recorded LEGO audio.
 - Connected bricks move together. Separating a seam releases connections crossing that interface and preserves connections on either side, including a five-brick stack splitting into groups of three and two.
 - A wide brick can attach to multiple supports in one press.
 - English and Turkish interfaces, remembered locally.
@@ -89,7 +89,7 @@ Audio starts after a user gesture, in accordance with browser autoplay rules. Us
 
 Each brick is a dynamic rigid body with a compound set of wall, roof, and cylindrical stud colliders. Engaged bricks use fixed joints; collisions within an engaged pair are disabled. Simulation advances at a fixed 120 Hz with bounded catch-up. Held connected components temporarily become kinematic and return to dynamic bodies on release.
 
-Mating requires compatible surface normals, a quarter-turn relative orientation (single round studs/sockets allow free yaw), matching stud pitch, a small horizontal tolerance, and a limited approach distance. Alignment previews are permissive only within those tolerances. Pressing checks clearance and creates joints only after the downward stroke. A connection graph records which bricks actually engage.
+Mating requires compatible surface normals, a quarter-turn relative orientation (single round studs/sockets allow free yaw), matching stud pitch, a small horizontal tolerance, and a limited approach distance. Alignment previews are permissive only within those tolerances. Pressing checks clearance and creates joints only after the press stroke. Either side can be held: a lower brick can press upward into an existing assembly’s underside, or an upper brick can press downward onto its studs. A connection graph records which bricks actually engage.
 
 Separation uses the selected connection's interface plane. Connections crossing that plane are removed together after checking the extraction path, while internal connections remain intact. The lifted component stays in your hand. An obstructed separation is rejected.
 
