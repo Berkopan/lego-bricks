@@ -732,3 +732,18 @@ dialog p {
     pointer-events: auto;
   }
 }
+/* Keep the toolbox compact; instructions live in the help dialog. */
+#library {
+  height: auto;
+  bottom: auto;
+  max-height: calc(100dvh - 190px);
+}
+#library h2 {
+  margin-top: 0;
+}
+.brick-art {
+  height: 82px;
+}
+#cards {
+  margin-top: 16px;
+}

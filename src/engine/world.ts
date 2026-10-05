@@ -20,6 +20,9 @@ export class BrickWorld {
   links: Connection[] = [];
   held = new Set<number>();
   nextId = 1;
+  private elapsed = 0;
+  private impactTimes = new Map<string, number>();
+  private quietUntil = new Map<number, number>();
   constructor(
     public scene: T.Scene,
     public onImpact: (v: number) => void,
@@ -68,8 +71,7 @@ export class BrickWorld {
           .setFriction(0.55)
           .setRestitution(0.08)
           .setDensity(0.65)
-          .setActiveEvents(R.ActiveEvents.CONTACT_FORCE_EVENTS)
-          .setContactForceEventThreshold(0.8),
+          .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS),
         body,
       );
     box(0, h / 2 - 0.09, 0, w / 2, 0.09, d / 2);
@@ -81,7 +83,8 @@ export class BrickWorld {
       this.world.createCollider(
         R.ColliderDesc.cylinder(0.11, 0.3)
           .setTranslation(p.x, h / 2 + 0.11, p.z)
-          .setFriction(0.5),
+          .setFriction(0.5)
+          .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS),
         body,
       );
     const mesh = brickMesh(spec, color);
@@ -109,10 +112,64 @@ export class BrickWorld {
     }
   }
   step() {
-    this.world.step(this.events);
-    this.events.drainContactForceEvents((e) =>
-      this.onImpact(Math.min(0.65, e.totalForceMagnitude() / 400)),
+    // Capture incoming motion before the solver removes impact velocity.
+    const incoming = new Map(
+      this.bricks.map((b) => [
+        b.body.handle,
+        {
+          brick: b,
+          velocity: new T.Vector3().copy(b.body.linvel()),
+          spin:
+            (new T.Vector3().copy(b.body.angvel()).length() *
+              Math.max(b.spec.cols, b.spec.rows)) /
+            2,
+          group: Math.min(...component(b.id, this.links)),
+        },
+      ]),
     );
+    this.elapsed += this.world.timestep;
+    this.world.step(this.events);
+    const impacts = new Map<string, number>();
+    this.events.drainCollisionEvents((handleA, handleB, started) => {
+      if (!started) return;
+      const bodyA = this.world.getCollider(handleA)?.parent();
+      const bodyB = this.world.getCollider(handleB)?.parent();
+      const a = bodyA ? incoming.get(bodyA.handle) : undefined;
+      const b = bodyB ? incoming.get(bodyB.handle) : undefined;
+      if (!a && !b) return;
+      if (
+        [a, b].some(
+          (v) =>
+            v &&
+            (this.held.has(v.brick.id) ||
+              (this.quietUntil.get(v.brick.id) ?? 0) > this.elapsed),
+        )
+      )
+        return;
+      if (a && b && a.group === b.group) return;
+      const speed =
+        (a?.velocity.clone() ?? new T.Vector3())
+          .sub(b?.velocity ?? new T.Vector3())
+          .length() +
+        (a?.spin ?? 0) +
+        (b?.spin ?? 0);
+      // Resting support forces and tiny solver bounces are not fresh impacts.
+      if (speed < 1.2) return;
+      const key = [a?.group ?? 0, b?.group ?? 0]
+        .sort((a, b) => a - b)
+        .join(":");
+      impacts.set(key, Math.max(impacts.get(key) ?? 0, speed));
+    });
+    for (const [key, speed] of impacts) {
+      if (this.elapsed - (this.impactTimes.get(key) ?? -Infinity) < 0.25)
+        continue;
+      this.impactTimes.set(key, this.elapsed);
+      this.onImpact(Math.min(0.65, speed / 18));
+    }
+    for (const [key, time] of this.impactTimes)
+      if (this.elapsed - time > 1) this.impactTimes.delete(key);
+    for (const [id, time] of this.quietUntil)
+      if (this.elapsed > time) this.quietUntil.delete(id);
     this.sync();
     for (const b of [...this.bricks]) if (b.position.y < -30) this.remove(b.id);
   }
@@ -238,6 +295,11 @@ export class BrickWorld {
     return best;
   }
   connect(a: Brick, b: Brick, studs: number) {
+    for (const id of [
+      ...component(a.id, this.links),
+      ...component(b.id, this.links),
+    ])
+      this.quietUntil.set(id, this.elapsed + 0.3);
     const anchor = b.position
       .clone()
       .sub(a.position)

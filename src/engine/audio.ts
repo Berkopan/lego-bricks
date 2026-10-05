@@ -4,7 +4,8 @@ export class BrickAudio {
   private ctx?: AudioContext;
   private buffers: AudioBuffer[] = [];
   private loading?: Promise<void>;
-  private last = 0;
+  private lastImpact = -Infinity;
+  private impactQuietUntil = 0;
   async unlock() {
     try {
       this.ctx ??= new AudioContext();
@@ -35,14 +36,17 @@ export class BrickAudio {
     }
   }
   play(strength = 0.5, release = false, connection = false) {
-    if (
-      !this.enabled ||
-      !this.ctx ||
-      !this.buffers.length ||
-      this.ctx.currentTime - this.last < 0.065
-    )
-      return;
-    this.last = this.ctx.currentTime;
+    if (!this.enabled || !this.ctx || !this.buffers.length) return;
+    const deliberate = release || connection;
+    if (deliberate) this.impactQuietUntil = this.ctx.currentTime + 0.3;
+    else {
+      if (
+        this.ctx.currentTime < this.impactQuietUntil ||
+        this.ctx.currentTime - this.lastImpact < 0.065
+      )
+        return;
+      this.lastImpact = this.ctx.currentTime;
+    }
     const source = this.ctx.createBufferSource(),
       gain = this.ctx.createGain();
     source.buffer =
