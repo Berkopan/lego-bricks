@@ -297,3 +297,69 @@ test("spawn avoids stud-only overlap and leaves the selection held when the sear
   assert.deepEqual([...w.held], held);
   w.world.free();
 });
+
+test("assembly can mate through its bottom member while its top member is selected", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  const support = w.add(catalog[2], "#df553e", new Vector3(0, 0.6, 0));
+  const bottom = w.add(catalog[1], "#66846b", new Vector3(0, 2.15, 0));
+  const top = w.add(catalog[1], "#66846b", new Vector3(0, 3.35, 0));
+  w.connect(top, bottom, 4);
+  w.grab(top.id);
+  const c = w.candidate(top.id);
+  assert.equal(c?.upper.id, bottom.id);
+  assert.equal(c?.lower.id, support.id);
+  assert.ok(Math.abs(c!.fit.position.y - 3) < 1e-6);
+  assert.ok(w.press(top.id));
+  assert.equal(w.links.length, 2);
+  assert.equal(component(top.id, w.links).size, 3);
+  assert.ok(Math.abs(top.position.y - bottom.position.y - 1.2) < 1e-6);
+  for (let i = 0; i < 240; i++) w.step();
+  assert.ok(top.position.y > 2.8);
+  w.world.free();
+});
+test("deleting a middle brick preserves both surviving subassemblies and releases held bodies", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  const bricks = Array.from({ length: 5 }, (_, i) =>
+    w.add(catalog[1], "#66846b", new Vector3(0, 0.6 + i * 1.2, 0)),
+  );
+  for (let i = 1; i < 5; i++) w.connect(bricks[i], bricks[i - 1], 4);
+  w.grab(bricks[4].id);
+  w.remove(bricks[2].id);
+  assert.equal(w.bricks.length, 4);
+  assert.equal(w.links.length, 2);
+  assert.equal(w.held.size, 0);
+  assert.equal(component(bricks[0].id, w.links).size, 2);
+  assert.equal(component(bricks[4].id, w.links).size, 2);
+  assert.ok(w.bricks.every((b) => b.body.isDynamic()));
+  w.remove(bricks[2].id);
+  for (let i = 0; i < 120; i++) w.step();
+  assert.ok(w.bricks.every((b) => b.position.toArray().every(Number.isFinite)));
+  w.world.free();
+});
+
+test("off-center selected member joins another assembly without losing the internal offset", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  const base = w.add(catalog[2], "#df553e", new Vector3(0, 0.6, 0)),
+    support = w.add(catalog[2], "#df553e", new Vector3(0, 1.8, 0));
+  w.connect(support, base, 8);
+  const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), 0.01);
+  const bottom = w.add(catalog[1], "#66846b", new Vector3(0.05, 3.35, 0), q);
+  const top = w.add(
+    catalog[1],
+    "#66846b",
+    bottom.position.clone().add(new Vector3(1, 1.2, 0).applyQuaternion(q)),
+    q,
+  );
+  w.connect(top, bottom, 2);
+  w.grab(top.id);
+  assert.ok(w.press(top.id));
+  assert.equal(component(top.id, w.links).size, 4);
+  assert.equal(w.links.length, 3);
+  assert.ok(Math.abs(top.position.x - bottom.position.x - 1) < 1e-5);
+  assert.ok(Math.abs(top.position.z - bottom.position.z) < 1e-5);
+  assert.ok(Math.abs(bottom.position.y - 3) < 1e-5);
+  w.world.free();
+});

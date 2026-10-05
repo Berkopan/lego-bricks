@@ -175,7 +175,7 @@ function renderSelection() {
   const held = world.held.has(b.id),
     links = world.links.filter((l) => component(b.id, world.links).has(l.a));
   $("#selection-content").innerHTML =
-    `<div class="selected-title"><span class="color-chip" style="background:${b.color}"></span><h3>${b.spec.label}</h3><span class="pill">${held ? text("held") : text("free")}</span></div><div class="selection-actions"><button id="grab" class="secondary">${held ? text("drop") : text("grab")} <span>${held ? "Esc" : "↖"}</span></button><button id="rotate" title="R">↻ <span>${text("rotate")}</span></button><button id="upright" title="U">${text("upright")}</button><button id="remove" class="remove" title="${text("delete")}">×</button></div><div class="height-actions"><span>${text("lift")}</span><button id="down">−</button><button id="up">+</button><kbd>Q / E</kbd></div><button id="press" class="press" ${held ? "" : "disabled"}><span>${text("press")}</span><kbd>Space</kbd></button>${links.length ? `<div class="seam-label eyebrow">${text("seam")}</div><select id="seams" aria-label="${text("seam")}">${links.map((l) => `<option value="${world.links.indexOf(l)}">#${l.a} ↔ #${l.b} · ${l.studs} ${text("studs")}</option>`).join("")}</select><button id="detach" class="detach">↗ ${text("detach")}</button>` : ""}`;
+    `<div class="selected-title"><span class="color-chip" style="background:${b.color}"></span><h3>${b.spec.label}</h3><span class="pill">${held ? text("held") : text("free")}</span></div><div class="selection-actions"><button id="grab" class="secondary">${held ? text("drop") : text("grab")} <span>${held ? "Esc" : "↖"}</span></button><button id="rotate" title="R">↻ <span>${text("rotate")}</span></button><button id="upright" title="U">${text("upright")}</button><button id="remove" class="remove" title="${text("delete")} (Delete)" aria-label="${text("delete")}">${text("delete")}</button></div><div class="height-actions"><span>${text("lift")}</span><button id="down">−</button><button id="up">+</button><kbd>Q / E</kbd></div><button id="press" class="press" ${held ? "" : "disabled"}><span>${text("press")}</span><kbd>Space</kbd></button>${links.length ? `<div class="seam-label eyebrow">${text("seam")}</div><select id="seams" aria-label="${text("seam")}">${links.map((l) => `<option value="${world.links.indexOf(l)}">#${l.a} ↔ #${l.b} · ${l.studs} ${text("studs")}</option>`).join("")}</select><button id="detach" class="detach">↗ ${text("detach")}</button>` : ""}`;
   $("#grab").onclick = () => {
     cancelPress();
     held ? world.release() : world.grab(b.id);
@@ -183,10 +183,7 @@ function renderSelection() {
   };
   $("#rotate").onclick = () => rotate("y");
   $("#upright").onclick = upright;
-  $("#remove").onclick = () => {
-    world.remove(b.id);
-    select(null);
-  };
+  $("#remove").onclick = deleteSelected;
   $("#up").onclick = () => height(0.24);
   $("#down").onclick = () => height(-0.24);
   const press = $("#press");
@@ -203,6 +200,15 @@ function renderSelection() {
       }
       dirty = true;
     };
+}
+function deleteSelected() {
+  if (!selected) return;
+  cancelPress();
+  endDrag();
+  const id = selected.id;
+  select(null);
+  world.remove(id);
+  toast(text("deleted"));
 }
 function height(amount: number) {
   if (!selected || pressing) return;
@@ -469,6 +475,11 @@ window.addEventListener("keydown", (e) => {
     world.release();
     dirty = true;
   }
+  if (e.code === "Delete" || e.code === "Backspace") {
+    e.preventDefault();
+    if (!e.repeat) deleteSelected();
+    return;
+  }
   if (e.key.toLowerCase() === "u") upright();
   if (e.key.toLowerCase() === "r") rotate("y");
   if (e.key.toLowerCase() === "x") rotate("x");
@@ -573,9 +584,9 @@ function frame(now: number) {
     $("#press")?.toggleAttribute("disabled", !candidate);
     ghost.visible = !!candidate;
     if (candidate) {
-      ghost.scale.set(selected.spec.cols, selected.spec.rows, 1);
+      ghost.scale.set(candidate.upper.spec.cols, candidate.upper.spec.rows, 1);
       ghost.quaternion
-        .copy(candidate.fit.rotation)
+        .copy(candidate.surfaceFit.rotation)
         .multiply(
           new T.Quaternion().setFromAxisAngle(
             new T.Vector3(1, 0, 0),
@@ -583,11 +594,13 @@ function frame(now: number) {
           ),
         );
       ghost.position
-        .copy(candidate.fit.position)
+        .copy(candidate.surfaceFit.position)
         .add(
-          new T.Vector3(0, -selected.spec.height / 2 + 0.02, 0).applyQuaternion(
-            candidate.fit.rotation,
-          ),
+          new T.Vector3(
+            0,
+            -candidate.upper.spec.height / 2 + 0.02,
+            0,
+          ).applyQuaternion(candidate.surfaceFit.rotation),
         );
     }
   } else {

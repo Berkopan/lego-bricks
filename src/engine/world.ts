@@ -353,22 +353,37 @@ export class BrickWorld {
   }
   candidate(id: number) {
     if (!this.held.has(id)) return null;
-    const upper = this.get(id);
-    let best: null | {
-      lower: Brick;
-      fit: NonNullable<ReturnType<typeof mating>>;
-    } = null;
-    for (const lower of this.bricks) {
-      if (this.held.has(lower.id)) continue;
-      const fit = mating(upper, lower);
-      if (
-        fit &&
-        (!best ||
-          fit.position.distanceTo(upper.position) <
-            best.fit.position.distanceTo(upper.position))
-      )
-        best = { lower, fit };
-    }
+    const root = this.get(id);
+    type Fit = NonNullable<ReturnType<typeof mating>>;
+    let best: { upper: Brick; lower: Brick; surfaceFit: Fit; fit: Fit } | null =
+      null;
+    let bestDistance = Infinity;
+    // The grabbed member need not be the member exposing the mating sockets.
+    for (const member of this.held)
+      for (const lower of this.bricks) {
+        if (this.held.has(lower.id)) continue;
+        const upper = this.get(member),
+          surfaceFit = mating(upper, lower);
+        if (!surfaceFit) continue;
+        const distance = surfaceFit.position.distanceToSquared(upper.position);
+        if (distance >= bestDistance) continue;
+        const delta = surfaceFit.rotation
+          .clone()
+          .multiply(upper.rotation.clone().invert());
+        // Convert the contact member's target into the selected root's target,
+        // preserving every internal relative transform during the press stroke.
+        const fit = {
+          ...surfaceFit,
+          position: root.position
+            .clone()
+            .sub(upper.position)
+            .applyQuaternion(delta)
+            .add(surfaceFit.position),
+          rotation: delta.clone().multiply(root.rotation),
+        };
+        best = { upper, lower, surfaceFit, fit };
+        bestDistance = distance;
+      }
     return best;
   }
   connect(a: Brick, b: Brick, studs: number) {
@@ -460,8 +475,9 @@ export class BrickWorld {
   }
 
   remove(id: number) {
-    this.release();
     const b = this.get(id);
+    if (!b) return;
+    this.release();
     for (const l of this.links.filter((l) => l.a === id || l.b === id))
       this.world.removeImpulseJoint(l.joint, true);
     this.links = this.links.filter((l) => l.a !== id && l.b !== id);
