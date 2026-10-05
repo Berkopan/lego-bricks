@@ -1,4 +1,4 @@
-import { bindJoystick } from "./input/joystick";
+import { bindJoystick, keepsJoystickWhile } from "./input/joystick";
 import { bindRepeatActions } from "./input/touch";
 import type { Language } from "./i18n";
 
@@ -146,8 +146,11 @@ export function setupMobileHud(options: HudOptions) {
       cancel();
       setExpanded(false);
     } else if (!pad.contains(event.target as Node)) {
-      // A different tool takes over from the joystick, without repeating a stale move.
-      stick.cancel();
+      const repeatAction = (event.target as Element)
+        .closest<HTMLElement>("[data-repeat]")?.dataset.repeat;
+      // Height is an independent axis: a second finger may lift/lower while the
+      // first keeps steering the brick. Other tools still take ownership.
+      if (!keepsJoystickWhile(repeatAction)) stick.cancel();
     }
   }, true);
 
