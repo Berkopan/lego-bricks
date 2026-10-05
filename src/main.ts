@@ -100,7 +100,7 @@ const world = new BrickWorld(scene, (v) => audio.play(v));
 let selected: Brick | null = null,
   currentColor = colors[0],
   paused = false,
-  panelOpen = innerWidth > 1024 && !matchMedia("(any-pointer: coarse)").matches,
+  panelOpen = innerWidth > 720,
   toastTimer = 0,
   dirty = true;
 let pressing: null | {
