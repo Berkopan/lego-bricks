@@ -2,6 +2,7 @@ import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { BrickWorld, type Brick } from "./engine/world";
+import { dragTarget } from "./engine/drag";
 import { BrickAudio } from "./engine/audio";
 import { catalog, colors } from "./engine/catalog";
 import { component } from "./engine/connections";
@@ -10,7 +11,7 @@ import "./style.css";
 let language: Language =
   localStorage.getItem("bricks-language") === "tr" ? "tr" : "en";
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><section class="intro"><div class="eyebrow" data-t="tag"></div><h1></h1><p data-t="subtitle"></p><button id="demo" class="text-button"><span data-t="demo"></span> <span>↗</span></button></section><aside id="library"><div class="panel-heading"><span class="eyebrow" data-t="collection"></span><span class="pill">${String(catalog.length).padStart(2, "0")}</span></div><h2 data-t="library"></h2><p class="muted" data-t="libraryHint"></p><div id="cards"></div><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div><div class="library-footer"><span class="tiny-cube">◇</span><span data-t="footer"></span></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div><div class="workspace-hint"><span class="mouse-icon">↖</span><span data-t="hint"></span><span class="hint-divider"></span><span data-t="hint2"></span></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="rotate"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
+app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><div id="cards"></div><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="rotate"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
 const $ = <E extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<E>(s)!;
 const text = (key: keyof typeof messages.en) => messages[language][key];
@@ -74,9 +75,7 @@ grid.position.y = 0.003;
 (grid.material as T.Material).transparent = true;
 (grid.material as T.Material).opacity = 0.42;
 scene.add(grid);
-const world = new BrickWorld(scene, (v) => {
-  if (!world.held.size) audio.play(v);
-});
+const world = new BrickWorld(scene, (v) => audio.play(v));
 let selected: Brick | null = null,
   currentColor = colors[0],
   paused = false,
@@ -122,7 +121,6 @@ function translate() {
     .forEach(
       (el) => (el.textContent = text(el.dataset.t as keyof typeof messages.en)),
     );
-  $("h1").innerHTML = text("title");
   document
     .querySelectorAll<HTMLElement>("[data-lang]")
     .forEach((el) =>
@@ -141,7 +139,7 @@ function renderCards() {
   $("#cards").innerHTML = catalog
     .map(
       (s, i) =>
-        `<button class="brick-card" data-spec="${s.id}" aria-label="${text("add")} ${s.label}"><div class="brick-art art-${s.id}" style="--brick:${currentColor};--cols:${s.cols};--rows:${s.rows}"><div class="mini-brick">${Array.from({ length: s.cols * s.rows }, () => "<i></i>").join("")}</div></div><div class="card-description"><span class="card-number">0${i + 1}</span><div><strong>${s.label}</strong><span>${text("standard")}</span></div><span class="add-circle">+</span></div></button>`,
+        `<button class="brick-card" data-spec="${s.id}" aria-label="${text("add")} ${s.label}"><div class="brick-art art-${s.id}" style="--brick:${currentColor};--cols:${s.cols};--rows:${s.rows}"><div class="mini-brick">${Array.from({ length: s.cols * s.rows }, () => "<i></i>").join("")}</div></div><div class="card-description"><div><strong>${s.label}</strong></div><span class="add-circle">+</span></div></button>`,
     )
     .join("");
   document.querySelectorAll<HTMLElement>("[data-spec]").forEach(
@@ -174,9 +172,9 @@ function select(b: Brick | null) {
 }
 function renderSelection() {
   const b = selected;
+  $("#selection").hidden = !b;
   if (!b) {
-    $("#selection-content").innerHTML =
-      `<h3>${text("none")}</h3><p class="muted">${text("noneHint")}</p>`;
+    $("#selection-content").innerHTML = "";
     return;
   }
   const held = world.held.has(b.id),
@@ -361,6 +359,7 @@ $("#reset").onclick = () => {
   }
 };
 $("#demo").onclick = () => {
+  $<HTMLDialogElement>("#help-dialog").close();
   if (world.links.length && !confirm(text("resetAsk"))) return;
   cancelPress();
   world.clear();
@@ -406,6 +405,7 @@ canvas.addEventListener(
     const b = obj.userData.brick as Brick;
     select(b);
     controls.enabled = false;
+    // Keep this plane fixed for the entire gesture: Q/E changes only Y.
     const plane = new T.Plane(new T.Vector3(0, 1, 0), -b.position.y),
       p = new T.Vector3();
     ray.ray.intersectPlane(plane, p);
@@ -431,17 +431,13 @@ canvas.addEventListener("pointermove", (e) => {
     world.grab(drag.id);
     const b = world.get(drag.id);
     world.transform(b.id, b.position.clone().add(new T.Vector3(0, 0.4, 0)));
-    drag.plane.constant = -b.position.y;
     drag.moving = true;
     dirty = true;
   }
   if (drag.moving) {
-    drag.plane.constant = -world.get(drag.id).position.y;
-    const p = new T.Vector3();
-    if (ray.ray.intersectPlane(drag.plane, p)) {
-      const target = p.add(drag.offset),
-        b = world.get(drag.id);
-      target.y = b.position.y; // Substeps prevent skipping thin blockers when dragging quickly.
+    const b = world.get(drag.id);
+    const target = dragTarget(ray.ray, drag.plane, drag.offset, b.position.y);
+    if (target) {
       const dist = target.distanceTo(b.position),
         steps = Math.max(1, Math.ceil(dist / 0.15)),
         origin = b.position.clone();
@@ -576,7 +572,7 @@ function frame(now: number) {
         ? text("pressing")
         : candidate
           ? text("ready")
-          : text("notReady")
+          : ""
       : "";
     $("#alignment").classList.toggle("ready", !!candidate);
     $("#press")?.toggleAttribute("disabled", !candidate);

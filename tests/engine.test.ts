@@ -175,3 +175,34 @@ test("swept manual transforms cannot tunnel through a blocker", async () => {
   assert.equal(held.position.x, -4);
   w.world.free();
 });
+
+test("one landing produces one impact; resting is silent and a later drop sounds again", async () => {
+  const sounds: number[] = [];
+  const w = new BrickWorld(new Scene(), (v) => sounds.push(v));
+  await w.init();
+  const b = w.add(catalog[2], "#df553e", new Vector3(0, 4, 0));
+  for (let i = 0; i < 600; i++) w.step();
+  assert.equal(sounds.length, 1);
+  for (let i = 0; i < 600; i++) w.step();
+  assert.equal(sounds.length, 1);
+  w.grab(b.id);
+  w.transform(b.id, new Vector3(0, 4, 0));
+  w.release();
+  for (let i = 0; i < 600; i++) w.step();
+  assert.equal(sounds.length, 2);
+  w.world.free();
+});
+test("pressing and settling an assembly do not emit impact sounds", async () => {
+  const sounds: number[] = [];
+  const w = new BrickWorld(new Scene(), (v) => sounds.push(v));
+  await w.init();
+  w.add(catalog[2], "#df553e", new Vector3(0, 0.6, 0));
+  for (let i = 0; i < 240; i++) w.step();
+  const top = w.add(catalog[1], "#66846b", new Vector3(0, 2.2, 0));
+  w.grab(top.id);
+  sounds.length = 0;
+  assert.ok(w.press(top.id));
+  for (let i = 0; i < 600; i++) w.step();
+  assert.equal(sounds.length, 0);
+  w.world.free();
+});

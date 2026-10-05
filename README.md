@@ -53,7 +53,7 @@ npm run preview # serve the production build locally
 | Pan                         | Right-drag                                                                   |
 | Zoom                        | Mouse wheel                                                                  |
 
-A held object remains in your hand when you stop dragging. This lets you adjust height and rotation before releasing it. Lift above nearby bricks before moving across them. The connection example starts with two aligned bricks so you can try pressing immediately.
+A held object remains in your hand when you stop dragging. This lets you adjust height and rotation before releasing it. Lift above nearby bricks before moving across them. The connection example in the help dialog starts with two aligned bricks so you can try pressing immediately.
 
 Audio starts after a user gesture, in accordance with browser autoplay rules. Use the music-note button to mute it. No audio is streamed at runtime.
 
@@ -108,8 +108,10 @@ The JavaScript payload contains Three.js and Rapier's WebAssembly runtime (rough
 Real recordings are included under **CC0 1.0**:
 
 - [Lego Click (short) — ImmergoMedia](https://freesound.org/people/ImmergoMedia/sounds/670000/): two LEGO pieces tapped together. Bundled as `public/audio/lego-tap.mp3` from the high-quality preview; used for impacts.
-- [Connecting two LEGO Bricks — LauraWebdev](https://freesound.org/people/LauraWebdev/sounds/257245/): actual connection recordings. Three excerpts from the high-quality preview are bundled as `connect-1.wav`, `connect-2.wav`, and `connect-3.wav`, with short fade-outs. Used for engagement and, at a slightly lower playback rate, separation. Separation is an adaptation, not a separate pull-apart recording.
+- [Connecting two LEGO Bricks — LauraWebdev](https://freesound.org/people/LauraWebdev/sounds/257245/): actual connection recordings. Three excerpts from the high-quality preview are bundled as `connect-1.wav`, `connect-2.wav`, and `connect-3.wav`, with peak normalization and short edge fades. Used for engagement and, at a slightly lower playback rate, separation. Separation is an adaptation, not a separate pull-apart recording.
 
 [CC0 license](https://creativecommons.org/publicdomain/zero/1.0/). Attribution is retained here for provenance even though CC0 does not require it.
 
 This is an independent fan-made experiment and is not affiliated with or endorsed by the LEGO Group. LEGO is a trademark of the LEGO Group. No official logos or product photographs are bundled.
+
+Audio signal inspection and playback regression results: [audio verification](docs/audio-analysis.md).
