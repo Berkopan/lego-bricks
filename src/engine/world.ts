@@ -5,6 +5,14 @@ import { catalog, connectors, type BrickSpec } from "./catalog";
 import { component, mating, type Link, type Pose } from "./connections";
 import { overlapDepth, bottomOf } from "./overlap";
 import { brickMesh } from "./geometry";
+import { solids, type Solid } from "./solids";
+function solidCollider(s: Solid) {
+  return s.kind === "box"
+    ? R.ColliderDesc.cuboid(
+        ...(s.half as [number, number, number]),
+      ).setTranslation(...(s.center as [number, number, number]))
+    : R.ColliderDesc.convexHull(new Float32Array(s.vertices))!;
+}
 export interface Brick extends Pose {
   body: R.RigidBody;
   mesh: T.Group;
@@ -113,32 +121,16 @@ export class BrickWorld {
         .setLinearDamping(0.18)
         .setAngularDamping(0.35),
     );
-    const w = spec.cols - 0.04,
-      d = spec.rows - 0.04,
-      h = spec.height,
-      t = 0.16;
-    const box = (
-      x: number,
-      y: number,
-      z: number,
-      hx: number,
-      hy: number,
-      hz: number,
-    ) =>
+    const h = spec.height;
+    for (const solid of solids(spec))
       this.world.createCollider(
-        R.ColliderDesc.cuboid(hx, hy, hz)
-          .setTranslation(x, y, z)
+        solidCollider(solid)
           .setFriction(0.55)
           .setRestitution(0.08)
           .setDensity(0.65)
           .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS),
         body,
       );
-    box(0, h / 2 - 0.09, 0, w / 2, 0.09, d / 2);
-    for (const k of [-1, 1]) {
-      box((k * (w - t)) / 2, -0.075, 0, t / 2, (h - 0.15) / 2, d / 2);
-      box(0, -0.075, (k * (d - t)) / 2, (w - 2 * t) / 2, (h - 0.15) / 2, t / 2);
-    }
     for (const p of connectors(spec))
       this.world.createCollider(
         R.ColliderDesc.cylinder(0.11, 0.3)
@@ -268,6 +260,54 @@ export class BrickWorld {
       ),
     );
   }
+  private clearanceShapes = new Map<
+    BrickSpec,
+    { shape: R.Shape; offset: T.Vector3 }[]
+  >();
+  private shapes(spec: BrickSpec) {
+    let cached = this.clearanceShapes.get(spec);
+    if (!cached) {
+      cached = spec.shape
+        ? solids(spec).map((s) => ({
+            shape: solidCollider(s).shape,
+            offset: new T.Vector3(
+              ...((s.kind === "box" ? s.center : [0, 0, 0]) as [
+                number,
+                number,
+                number,
+              ]),
+            ),
+          }))
+        : [
+            {
+              shape: new R.Cuboid(
+                spec.cols / 2 - 0.035,
+                spec.height / 2 - 0.015,
+                spec.rows / 2 - 0.035,
+              ),
+              offset: new T.Vector3(),
+            },
+          ];
+      this.clearanceShapes.set(spec, cached);
+    }
+    return cached;
+  }
+  private detailedOverlap(a: Brick, box: OBB, b: Brick) {
+    const q = new T.Quaternion().setFromRotationMatrix(
+      new T.Matrix4().setFromMatrix3(box.rotation),
+    );
+    return this.shapes(a.spec).some((sa) =>
+      this.shapes(b.spec).some((sb) =>
+        sa.shape.intersectsShape(
+          sa.offset.clone().applyQuaternion(q).add(box.center),
+          q,
+          sb.shape,
+          sb.offset.clone().applyQuaternion(b.rotation).add(b.position),
+          b.rotation,
+        ),
+      ),
+    );
+  }
   clearAt(
     poses: Map<number, { p: T.Vector3; q: T.Quaternion }>,
     previous?: Map<number, OBB>,
@@ -283,11 +323,14 @@ export class BrickWorld {
         if (poses.has(other.id)) continue;
         const obstacle = this.obb(other);
         if (!obb.intersectsOBB(obstacle, 1e-5)) continue;
+        const detailed = !!(b.spec.shape || other.spec.shape);
+        if (detailed && !this.detailedOverlap(b, obb, other)) continue;
         // Existing overlaps may only stay level or shrink at every swept step.
         // New intersections, deepening overlaps, and passing through walls remain blocked.
         if (
           !before ||
           !before.intersectsOBB(obstacle, 1e-5) ||
+          (detailed && !this.detailedOverlap(b, before, other)) ||
           obb.center.distanceToSquared(obstacle.center) <
             before.center.distanceToSquared(obstacle.center) - 1e-6 ||
           overlapDepth(obb, obstacle) > overlapDepth(before, obstacle) + 1e-6
@@ -360,37 +403,60 @@ export class BrickWorld {
     if (!this.held.has(id)) return null;
     const root = this.get(id);
     type Fit = NonNullable<ReturnType<typeof mating>>;
-    let best: { upper: Brick; lower: Brick; surfaceFit: Fit; fit: Fit } | null =
-      null;
+    let best: {
+      upper: Brick;
+      lower: Brick;
+      stationary: Brick;
+      surfaceFit: Fit;
+      fit: Fit;
+    } | null = null;
     let bestDistance = Infinity;
-    // The grabbed member need not be the member exposing the mating sockets.
+    // Any held member can supply either sockets (above) or studs (below).
     for (const member of this.held)
-      for (const lower of this.bricks) {
-        if (this.held.has(lower.id)) continue;
-        const upper = this.get(member),
-          surfaceFit = mating(upper, lower, 0.65, true);
-        if (!surfaceFit) continue;
-        const distance = surfaceFit.position.distanceToSquared(upper.position);
-        if (distance >= bestDistance) continue;
-        const delta = surfaceFit.rotation
-          .clone()
-          .multiply(upper.rotation.clone().invert());
-        // Convert the contact member's target into the selected root's target,
-        // preserving every internal relative transform during the press stroke.
-        const fit = {
-          ...surfaceFit,
-          position: root.position
-            .clone()
-            .sub(upper.position)
-            .applyQuaternion(delta)
-            .add(surfaceFit.position),
-          rotation: delta.clone().multiply(root.rotation),
-        };
-        // Do not advertise an alignment that would drive another assembly member
-        // into the floor or an obstacle. Try other contact members if blocked.
-        if (!this.sweptPoses(id, fit.position, fit.rotation)) continue;
-        best = { upper, lower, surfaceFit, fit };
-        bestDistance = distance;
+      for (const stationary of this.bricks) {
+        if (this.held.has(stationary.id)) continue;
+        const moving = this.get(member);
+        for (const fromBelow of [false, true]) {
+          const upper = fromBelow ? stationary : moving;
+          const lower = fromBelow ? moving : stationary;
+          const contact = mating(upper, lower, 0.65, true);
+          if (!contact) continue;
+          // mating gives the upper target with the lower fixed. Invert that
+          // rigid transform when holding the lower, keeping the upper in place.
+          const delta = fromBelow
+            ? upper.rotation.clone().multiply(contact.rotation.clone().invert())
+            : contact.rotation
+                .clone()
+                .multiply(upper.rotation.clone().invert());
+          const position = fromBelow
+            ? lower.position
+                .clone()
+                .sub(contact.position)
+                .applyQuaternion(delta)
+                .add(upper.position)
+            : contact.position;
+          const distance = position.distanceToSquared(moving.position);
+          if (distance >= bestDistance) continue;
+          const fit = {
+            ...contact,
+            position: root.position
+              .clone()
+              .sub(moving.position)
+              .applyQuaternion(delta)
+              .add(position),
+            rotation: delta.clone().multiply(root.rotation),
+          };
+          if (!this.sweptPoses(id, fit.position, fit.rotation)) continue;
+          const surfaceFit = fromBelow
+            ? {
+                ...contact,
+                position: upper.position.clone(),
+                rotation: upper.rotation.clone(),
+              }
+            : contact;
+          best = { upper, lower, stationary, surfaceFit, fit };
+          bestDistance = distance;
+        }
       }
     return best;
   }
@@ -426,12 +492,18 @@ export class BrickWorld {
     // A wide brick may engage several independent supports with the same press.
     const contacts: { a: Brick; b: Brick; studs: number }[] = [];
     for (const i of this.held)
-      for (const lower of this.bricks) {
-        if (this.held.has(lower.id)) continue;
-        const upper = this.get(i),
-          fit = mating(upper, lower, 0.06);
-        if (fit && fit.position.distanceTo(upper.position) < 0.04)
-          contacts.push({ a: upper, b: lower, studs: fit.count });
+      for (const other of this.bricks) {
+        if (this.held.has(other.id)) continue;
+        const moving = this.get(i);
+        // Links always store upper -> lower, regardless of which side is held.
+        for (const [upper, lower] of [
+          [moving, other],
+          [other, moving],
+        ]) {
+          const fit = mating(upper, lower, 0.06);
+          if (fit && fit.position.distanceTo(upper.position) < 0.04)
+            contacts.push({ a: upper, b: lower, studs: fit.count });
+        }
       }
     if (!contacts.length) return false;
     for (const c of contacts) this.connect(c.a, c.b, c.studs);

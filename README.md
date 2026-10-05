@@ -6,16 +6,31 @@ Built with TypeScript, Three.js, and Rapier. Runs entirely in the browser and bu
 
 ## What's in the MVP
 
-- Three classic rectangular bricks: **1×2, 2×2, and 2×4**, with six colors.
+- **13 part types** across bricks, plates, tiles, slopes, round pieces, a corner plate and an arch, with six colors and category filters.
 - A fully 3D scene with orbit controls, shadows, hollow brick shells, studs, and visible underside support tubes.
 - Dynamic gravity, friction, collision response, tumbling, and continuous collision detection.
 - A collapsible library on the right. New bricks appear held above the work surface.
 - Free movement rather than world-grid placement. Connector alignment is checked in the target brick's local coordinates.
-- Explicit press-to-connect: correct positioning alone never creates a joint. Click **Press to connect** or hold **Space**; a short downward stroke ends with recorded LEGO audio.
+- Explicit press-to-connect: correct positioning alone never creates a joint. Click **Press to connect** or hold **Space**; a short press stroke toward the mating surface ends with recorded LEGO audio.
 - Connected bricks move together. Separating a seam releases connections crossing that interface and preserves connections on either side, including a five-brick stack splitting into groups of three and two.
 - A wide brick can attach to multiple supports in one press.
 - English and Turkish interfaces, remembered locally.
 - JSON save/open, a physics pause button, and an interactive connection example.
+
+## Parts
+
+The three original bricks (1×2, 2×2 and 2×4) are joined by these ten additions:
+
+| Family | Added parts |
+| --- | --- |
+| Plates | 1×2, 2×4 |
+| Smooth tiles | 1×2, 2×2 |
+| Round | 1×1 brick, 1×1 plate |
+| Slopes | 2×2 slope with a studded rear ledge, 1×1 cheese slope |
+| Corner | L-shaped 2×2 plate with three studs |
+| Arch | 1×4 arch with a curved opening |
+
+These are simplified representations of familiar families in [LEGO Pick a Brick](https://www.lego.com/en-us/pick-and-build/pick-a-brick), not a measured ranking of the ten most-used moulds or manufacturing CAD replicas. Plates and tiles use one-third brick height. Smooth tiles and cheese slopes have no upper studs; the larger slope only connects on its rear ledge. The arch attaches underneath at its two feet. Its opening and the missing corner of the L plate are empty in both rendering and collision. Library thumbnails use the actual scene geometry.
 
 ## Run locally
 
@@ -64,6 +79,7 @@ Audio starts after a user gesture, in accordance with browser autoplay rules. Us
 | Module                      | Responsibility                                                                      |
 | --------------------------- | ----------------------------------------------------------------------------------- |
 | `src/engine/catalog.ts`     | Dimensions, colors, and shared stud/socket lattice                                  |
+| `src/engine/solids.ts` | Shared convex bodies for special geometry, colliders and manual clearance |
 | `src/engine/geometry.ts`    | Procedural hollow shells, studs, and support tubes                                  |
 | `src/engine/connections.ts` | Local-space mating checks and connected-component traversal                         |
 | `src/engine/world.ts`       | Rapier bodies, compound colliders, joints, held assemblies, separation, persistence |
@@ -73,7 +89,7 @@ Audio starts after a user gesture, in accordance with browser autoplay rules. Us
 
 Each brick is a dynamic rigid body with a compound set of wall, roof, and cylindrical stud colliders. Engaged bricks use fixed joints; collisions within an engaged pair are disabled. Simulation advances at a fixed 120 Hz with bounded catch-up. Held connected components temporarily become kinematic and return to dynamic bodies on release.
 
-Mating requires compatible surface normals, a quarter-turn relative orientation, matching stud pitch, a small horizontal tolerance, and a limited approach distance. Alignment previews are permissive only within those tolerances. Pressing checks clearance and creates joints only after the downward stroke. A connection graph records which bricks actually engage.
+Mating requires compatible surface normals, a quarter-turn relative orientation (single round studs/sockets allow free yaw), matching stud pitch, a small horizontal tolerance, and a limited approach distance. Alignment previews are permissive only within those tolerances. Pressing checks clearance and creates joints only after the press stroke. Either side can be held: a lower brick can press upward into an existing assembly’s underside, or an upper brick can press downward onto its studs. A connection graph records which bricks actually engage.
 
 Separation uses the selected connection's interface plane. Connections crossing that plane are removed together after checking the extraction path, while internal connections remain intact. The lifted component stays in your hand. An obstructed separation is rejected.
 
@@ -87,13 +103,13 @@ Add an entry to `catalog`:
 
 The mesh, collider layout, connector lattice, UI card, and save format use that definition. One world unit is one stud pitch; proportions are approximately 8 mm pitch / 9.6 mm body height.
 
-Slopes, clips, hinges, axles, and nonrectangular elements need additional geometry, collider, and connector implementations. They should not be represented by merely changing rectangular dimensions. The rendering, connectivity, and physics modules are separate so these can be extended independently.
+Use `family` for library filtering and `labelTr` for Turkish names. `height: 0.4` defines a plate; `top: "none"` defines a smooth upper surface. `shape` selects the round, slope, corner or arch implementation. `connectors(spec, "top" | "bottom")` describes each surface independently. Add custom shapes in `solids.ts` and their connector masks in `catalog.ts`; the shared convex solids feed geometry and physics, while library previews render the same mesh. Add engagement, clearance, separation and save/restore tests for each new family. Clips, hinges, axles and side-facing connectors still need their own joint/connector implementations.
 
 ## Scope and current limitations
 
 This is a construction-oriented rigid-body approximation, not a material simulation of ABS plastic. Gravity and masses are tuned for an interactive tabletop. Stud grip is represented by explicit joints rather than elastic deformation or a calibrated clutch-force model. Connections do not automatically break under load.
 
-Manual movement uses conservative oriented body bounds to reject intersections; these bounds do not model every underside recess. Underside tubes are visual geometry; wall, roof, and stud shapes handle collision. Continuous physics still uses the detailed compound colliders. Extremely tight arrangements may require lifting a brick before repositioning it. Orientation buttons turn by 90 degrees; free bodies may tumble at any angle.
+Manual movement uses conservative oriented body bounds for rectangular parts, followed by convex-shape checks for special parts so their openings remain usable. These checks do not model every underside recess. Underside tubes are visual geometry; wall, roof, and stud shapes handle collision. Continuous physics still uses the detailed compound colliders. Extremely tight arrangements may require lifting a brick before repositioning it. Orientation buttons turn by 90 degrees; free bodies may tumble at any angle.
 
 Separation currently supports straight extraction along the chosen interface normal, not peeling or twisting. Save files store geometry and connections, not instantaneous velocities. There is a 250-brick creation/import cap, but practical performance depends on device and assembly complexity. Touch layouts are available, but desktop controls are the primary MVP target.
 

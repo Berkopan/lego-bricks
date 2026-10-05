@@ -1,20 +1,21 @@
+import { partPreviews } from "./scene/part-preview";
 import { groundController, groundOptions, groundStyle } from "./scene/ground";
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { seamPoints, visibleSeamHit } from "./engine/seams";
+import { seamSegments, visibleSeamHit } from "./engine/seams";
 import { BrickWorld, type Brick, type Connection } from "./engine/world";
 import { rotationAt, TURN_DURATION_MS } from "./engine/rotation";
 import { dragTarget } from "./engine/drag";
 import { BrickAudio } from "./engine/audio";
-import { catalog, colors } from "./engine/catalog";
+import { catalog, colors, partLabel } from "./engine/catalog";
 import { component } from "./engine/connections";
 import { messages, type Language } from "./i18n";
 import "./style.css";
 let language: Language =
   localStorage.getItem("bricks-language") === "tr" ? "tr" : "en";
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><label class="ground-control"><span class="eyebrow" data-t="ground"></span><select id="ground"></select></label><div id="cards"></div><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
+app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><label class="ground-control"><span class="eyebrow" data-t="ground"></span><select id="ground"></select></label><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div><select id="part-filter" aria-label="Parts"></select><div id="cards"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
 const $ = <E extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<E>(s)!;
 const text = (key: keyof typeof messages.en) => messages[language][key];
@@ -101,7 +102,7 @@ let selected: Brick | null = null,
 let pressing: null | {
   start: number;
   id: number;
-  lower: number;
+  anchor: number;
   origin: T.Vector3;
   target: T.Vector3;
   fromRotation: T.Quaternion;
@@ -162,7 +163,7 @@ function beginTurn(to: T.Quaternion, label: string) {
   };
   dirty = true;
 }
-const seamLines = new Map<Connection, T.LineLoop>();
+const seamLines = new Map<Connection, T.LineSegments>();
 const seamMaterial = new T.LineBasicMaterial({ color: 0xd49b36 });
 function updateSeams() {
   const members =
@@ -179,7 +180,7 @@ function updateSeams() {
   for (const link of active) {
     let line = seamLines.get(link);
     if (!line) {
-      line = new T.LineLoop(
+      line = new T.LineSegments(
         new T.BufferGeometry().setAttribute(
           "position",
           new T.Float32BufferAttribute(new Float32Array(12), 3),
@@ -190,9 +191,14 @@ function updateSeams() {
       seamLines.set(link, line);
       scene.add(line);
     }
-    const points = seamPoints(world.get(link.a), world.get(link.b));
-    line.visible = points.length === 4;
+    const points = seamSegments(world.get(link.a), world.get(link.b));
+    line.visible = points.length > 0;
     if (points.length) {
+      if (line.geometry.getAttribute("position").count !== points.length)
+        line.geometry.setAttribute(
+          "position",
+          new T.Float32BufferAttribute(new Float32Array(points.length * 3), 3),
+        );
       const position = line.geometry.getAttribute(
         "position",
       ) as T.BufferAttribute;
@@ -250,14 +256,29 @@ function translate() {
     .map((style) => `<option value="${style}">${text(style)}</option>`)
     .join("");
   $<HTMLSelectElement>("#ground").value = currentGround;
+  $("#part-filter").setAttribute("aria-label", text("partCategory"));
+  $("#part-filter").innerHTML = ["all", "brick", "plate", "tile", "special"]
+    .map(
+      (key) =>
+        `<option value="${key}">${text(key as keyof typeof messages.en)}</option>`,
+    )
+    .join("");
+  $<HTMLSelectElement>("#part-filter").value = partFilter;
   renderCards();
   dirty = true;
 }
+const previewPart = partPreviews();
+let partFilter = "all";
+$("#part-filter").onchange = (event) => {
+  partFilter = (event.target as HTMLSelectElement).value;
+  renderCards();
+};
 function renderCards() {
   $("#cards").innerHTML = catalog
+    .filter((s) => partFilter === "all" || (s.family ?? "brick") === partFilter)
     .map(
-      (s, i) =>
-        `<button class="brick-card" data-spec="${s.id}" aria-label="${text("add")} ${s.label}"><div class="brick-art art-${s.id}" style="--brick:${currentColor};--cols:${s.cols};--rows:${s.rows}"><div class="mini-brick">${Array.from({ length: s.cols * s.rows }, () => "<i></i>").join("")}</div></div><div class="card-description"><div><strong>${s.label}</strong></div><span class="add-circle">+</span></div></button>`,
+      (s) =>
+        `<button class="brick-card" data-spec="${s.id}" aria-label="${text("add")} ${partLabel(s, language)}"><img class="part-preview" src="${previewPart(s, currentColor)}" alt="" draggable="false"><div class="card-description"><strong>${partLabel(s, language)}</strong><span class="add-circle">+</span></div></button>`,
     )
     .join("");
   document.querySelectorAll<HTMLElement>("[data-spec]").forEach(
@@ -294,7 +315,7 @@ function renderSelection() {
   const held = world.held.has(b.id),
     links = world.links.filter((l) => component(b.id, world.links).has(l.a));
   $("#selection-content").innerHTML =
-    `<div class="selected-title"><span class="color-chip" style="background:${b.color}"></span><h3>${b.spec.label}</h3><span class="pill">${held ? text("held") : text("free")}</span></div><div class="selection-actions"><button id="grab" class="secondary">${held ? text("drop") : text("grab")} <span>${held ? "Esc" : "↖"}</span></button><button id="rotate" title="R">↻ <span>${text("rotate")}</span></button><button id="upright" title="U">${text("upright")}</button><button id="remove" class="remove" title="${text("delete")} (Delete)" aria-label="${text("delete")}">${text("delete")}</button></div><div class="height-actions"><span>${text("lift")}</span><button id="down">−</button><button id="up">+</button><kbd>Q / E</kbd></div><button id="press" class="press" ${held ? "" : "disabled"}><span>${text("press")}</span><kbd>Space</kbd></button>${links.length ? `<div class="seam-label eyebrow">${text("seam")}</div><select id="seams" aria-label="${text("seam")}">${links.map((l) => `<option value="${world.links.indexOf(l)}">#${l.a} ↔ #${l.b} · ${l.studs} ${text("studs")}</option>`).join("")}</select><button id="detach" class="detach">↗ ${text("detach")}</button>` : ""}`;
+    `<div class="selected-title"><span class="color-chip" style="background:${b.color}"></span><h3>${partLabel(b.spec, language)}</h3><span class="pill">${held ? text("held") : text("free")}</span></div><div class="selection-actions"><button id="grab" class="secondary">${held ? text("drop") : text("grab")} <span>${held ? "Esc" : "↖"}</span></button><button id="rotate" title="R">↻ <span>${text("rotate")}</span></button><button id="upright" title="U">${text("upright")}</button><button id="remove" class="remove" title="${text("delete")} (Delete)" aria-label="${text("delete")}">${text("delete")}</button></div><div class="height-actions"><span>${text("lift")}</span><button id="down">−</button><button id="up">+</button><kbd>Q / E</kbd></div><button id="press" class="press" ${held ? "" : "disabled"}><span>${text("press")}</span><kbd>Space</kbd></button>${links.length ? `<div class="seam-label eyebrow">${text("seam")}</div><select id="seams" aria-label="${text("seam")}">${links.map((l) => `<option value="${world.links.indexOf(l)}">#${l.a} ↔ #${l.b} · ${l.studs} ${text("studs")}</option>`).join("")}</select><button id="detach" class="detach">↗ ${text("detach")}</button>` : ""}`;
   $("#grab").onclick = () => {
     cancelTurn();
     cancelPress();
@@ -384,7 +405,7 @@ function startPress() {
   pressing = {
     start: performance.now(),
     id: selected.id,
-    lower: c.lower.id,
+    anchor: c.stationary.id,
     origin: selected.position.clone(),
     target: c.fit.position.clone(),
     fromRotation: selected.rotation.clone(),
@@ -736,8 +757,8 @@ function frame(now: number) {
     const p = pressing,
       t = Math.min(1, (now - p.start) / 450),
       b = world.get(p.id),
-      lower = world.get(p.lower);
-    if (!b || !lower || !world.held.has(b.id)) {
+      anchor = world.get(p.anchor);
+    if (!b || !anchor || !world.held.has(b.id)) {
       cancelPress();
     } else {
       const progress = t * t * (3 - 2 * t);

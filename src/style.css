@@ -770,3 +770,35 @@ dialog p {
   width: auto;
   margin: 0;
 }
+#cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.part-preview {
+  width: 100%;
+  height: 76px;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+.card-description {
+  padding: 8px;
+  gap: 4px;
+  min-height: 46px;
+}
+.card-description strong {
+  font-size: 10px;
+  letter-spacing: 0;
+  line-height: 1.4;
+}
+.card-description .add-circle {
+  flex: 0 0 17px;
+  width: 17px;
+  height: 17px;
+  font-size: 13px;
+}
+#part-filter {
+  margin: 12px 0 0;
+  width: 100%;
+}
