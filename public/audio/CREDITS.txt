@@ -1,0 +1,16 @@
+All audio source recordings: CC0 1.0.
+https://creativecommons.org/publicdomain/zero/1.0/
+
+lego-tap.mp3
+Lego Click (short), ImmergoMedia
+https://freesound.org/people/ImmergoMedia/sounds/670000/
+https://cdn.freesound.org/previews/670/670000_3086325-hq.mp3
+Unmodified high-quality preview.
+
+connect-1.wav, connect-2.wav, connect-3.wav
+Connecting two LEGO Bricks, LauraWebdev
+https://freesound.org/people/LauraWebdev/sounds/257245/
+https://cdn.freesound.org/previews/257/257245_4286987-hq.mp3
+Excerpts: 0–0.34s, 2.04–2.46s, 4.00–4.33s; final 50ms faded out.
+Pitch and gain varied at playback. Separation reuses these recordings at a lower rate.
+Sources and licenses checked October 5, 2026.
