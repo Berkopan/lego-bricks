@@ -48,7 +48,7 @@ npm run preview # serve the production build locally
 | Connect                     | Green alignment indicator, then click **Press to connect** or hold **Space** |
 | Cancel a keyboard press     | Release Space before the stroke completes                                    |
 | Release to physics          | **Escape** or Release                                                        |
-| Separate                    | Select a connected brick, choose a seam, click **Separate**                  |
+| Separate                    | Select a connected brick, then double-click a highlighted seam; or choose a seam and click **Separate**                  |
 | Orbit                       | Drag empty space                                                             |
 | Pan                         | Right-drag                                                                   |
 | Zoom                        | Mouse wheel                                                                  |
