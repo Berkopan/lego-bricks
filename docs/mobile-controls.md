@@ -1,43 +1,36 @@
 # Phone and tablet controls
 
-The existing web app includes touch controls; no native installation or keyboard is required. The touch layout is enabled only when the browser reports a coarse primary pointer, which targets phones and tablets without turning a narrow desktop browser window into the touch UI. Mouse controls, keyboard shortcuts, and the existing desktop panel breakpoint remain unchanged.
+The touch layout is enabled only when the browser reports a coarse primary pointer (`pointer: coarse`). Narrowing a desktop window does not activate it; desktop controls and the existing library breakpoint remain unchanged. Everything still runs client-side, including on GitHub Pages.
 
-## Gestures
+## Keep the world visible
 
-| Action | Gesture or control |
-| --- | --- |
-| Select a brick | Tap it in Build / Parça mode. Small finger movements do not lift it. |
-| Move a brick | Drag it with one finger in Build mode. The assembly remains held when the finger lifts. |
-| Orbit the camera | Drag empty space, or select Camera / Kamera and drag anywhere. |
-| Pan the camera | Move two fingers together. |
-| Zoom | Pinch with two fingers, or use the + / − camera buttons. |
-| Rotate a brick | Use the X, Y or Z buttons in Tools / Araçlar. |
-| Lift or lower | Use the height + / − buttons; hold to repeat. |
-| Fine positioning | Use the camera-relative arrow buttons; hold to repeat. |
-| Connect | When alignment turns green, tap the connect button. |
-| Detach | Select an assembly connection in the list, then tap Separate / Ayır. |
-| Release or delete | Use the corresponding selection-panel button. |
-| Save or open a scene | Use the existing footer controls and the device's file picker. |
+Selecting a brick no longer opens a sheet. The selection overlay has no background, border, blur or full-screen pointer target. Only the controls in the bottom corners intercept input; the space between them remains usable for scene gestures.
 
-Adding a second finger to an active brick drag ends the editing gesture without dropping the assembly, then transfers control to the camera. Lift both fingers after a pinch before starting another brick drag. This prevents an accidental move when one finger leaves before the other.
+- **Bottom left:** a 112px translucent joystick. Movement is relative to the camera, with a dead zone for finger jitter and proportional speed for fine positioning. Diagonals are speed-limited. Release the stick to stop moving; the brick stays held, like direct dragging.
+- **Bottom right:** small lift/lower, Y rotation, more-tools and Connect buttons. Height buttons support hold-to-repeat. Connect mirrors the existing engine's availability and animation progress.
+- **More tools (`…`):** an explicitly opened, height-limited corner popover with X/Z tilt, upright, pick up/release, directional nudges, connection selection/separation and delete. It starts closed on every new selection; dragging, tapping the scene or switching modes closes it. Long content scrolls inside the popover instead of covering more of the world.
 
-## Layout
+The persistent joystick is outside the re-rendered selection content so grabbing a free brick or updating the selected part does not destroy pointer capture. Selection changes, release, pointer cancellation, lost capture, blur, page hiding, resize, library opening and Camera mode stop active movement. A different control or canvas gesture takes ownership rather than moving a brick and camera simultaneously.
 
-Phones use a bottom-sheet library and a collapsible selection panel. The selection panel shrinks during a drag; tap Tools to expand it again. Opening the library hides the selection panel on narrow screens. Tablets use side panels; landscape phones use compact side panels with independently scrollable content. Controls account for display safe areas and the dynamic viewport height. The library closes when a new brick is selected or added.
+On phones and tablets (portrait or landscape), the corner controls respect the footer and safe-area insets. Opening the library or switching to Camera hides the editing overlay. The library retains its phone bottom-sheet and tablet/landscape layouts.
 
-Touch targets are at least 44 CSS pixels high, controls have accessible labels, and touch instructions are available in English and Turkish. Hidden library controls are inert. Scene serialization and the physics engine are unchanged.
+## Existing gestures
+
+Tap a brick to select it or drag it directly to move it. Drag empty space to orbit; Camera mode allows orbiting over bricks. Use two fingers to pan/pinch zoom. Adding a second finger during a direct brick drag transfers control to the camera without dropping the assembly. Lift both fingers before starting another edit.
+
+Save/open remain in the footer. The joystick has a keyboard arrow-key fallback, all controls have English/Turkish accessible labels, and the extra-tools popover provides 44px directional buttons as an alternative to dragging. Physics, scene serialization and desktop shortcuts are unchanged.
 
 ## Regression checks
 
-Run `npm test` and `npm run build`. `tests/touch.test.ts` covers taps, jitter thresholds, pointer ownership, empty-space orbit, explicit camera mode, one-to-two-finger transitions, both release orders, third fingers, duplicate events, cancellation, and coincident pinch points.
+Run `npm test` and `npm run build`. Existing touch tests cover gesture ownership. `tests/joystick.test.ts` covers jitter, analog speed, diagonal/out-of-bounds clamping, invalid geometry, frame-rate independence, interrupted-frame limits, pointer ownership and cancellation.
 
-For browser or physical-device QA, check a narrow phone in portrait and landscape, a portrait tablet, and a large landscape tablet. Verify:
+For browser/device QA:
 
-1. Add and select bricks; drag without moving the camera. In Camera mode, orbit over bricks without selecting them.
-2. Start a pinch directly over a brick, add a second finger during a drag, and lift fingers in either order. A remaining finger must not resume editing.
-3. Hold each height/position button, release outside it, change orientation, or background the tab. Movement must stop and later gestures must still work.
-4. Rotate on all three axes, connect using the demo, separate from the connection list, release and delete. Switch EN/TR with a selection active.
-5. Scroll panels without moving the scene. Reach all controls with the browser chrome visible and in landscape. Save and reopen the JSON scene using the platform file picker.
-6. On desktop, verify left-drag orbit, right-drag pan, wheel zoom, brick dragging, seam double-click, and the existing keyboard shortcuts.
+1. Select/add a brick on a narrow phone, landscape phone and tablet. The details popover must start closed; the scene center and space between controls must remain visible and interactive.
+2. Move with the joystick; release outside the pad and verify immediate stopping. Start from a free brick: grabbing/re-rendering must not break the gesture. Test height, Y rotation and Connect. A disabled Connect must never bypass the engine's alignment check.
+3. Open `…`, test X/Z, upright, release, delete and seam selection/separation. Verify long lists are scrollable and focus returns to `…` on close. Tap the scene to dismiss without swallowing the scene gesture.
+4. While holding the joystick or a repeat button, change selection, open the library, switch to Camera, resize/rotate, background the page or cancel the pointer. No continued movement or stale input should survive.
+5. Switch EN/TR with a selection active; check labels and Connect. Verify direct brick dragging and two-finger camera gestures still work.
+6. On desktop at wide and narrow widths, verify the original selection panel, mouse/keyboard controls and height-button click behavior; the joystick must remain hidden.
 
-Browser emulation does not replace physical iOS Safari, iPadOS Safari or Android testing, especially for safe-area insets and file download/picker behavior.
+Browser emulation does not replace physical iOS Safari, iPadOS Safari or Android testing, especially safe-area and file picker/download behavior.
