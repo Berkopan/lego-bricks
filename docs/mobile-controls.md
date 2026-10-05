@@ -1,6 +1,6 @@
 # Phone and tablet controls
 
-The existing web app includes touch controls; no native installation or keyboard is required. The touch layout is enabled for viewports up to 1024 CSS pixels wide or devices reporting a coarse pointer, including larger touch tablets with a trackpad attached. Mouse controls and keyboard shortcuts remain available.
+The existing web app includes touch controls; no native installation or keyboard is required. The touch layout is enabled only when the browser reports a coarse primary pointer, which targets phones and tablets without turning a narrow desktop browser window into the touch UI. Mouse controls, keyboard shortcuts, and the existing desktop panel breakpoint remain unchanged.
 
 ## Gestures
 
