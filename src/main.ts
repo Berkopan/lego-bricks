@@ -1,7 +1,8 @@
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { BrickWorld, type Brick } from "./engine/world";
+import { seamPoints, visibleSeamHit } from "./engine/seams";
+import { BrickWorld, type Brick, type Connection } from "./engine/world";
 import { rotationAt, TURN_DURATION_MS } from "./engine/rotation";
 import { dragTarget } from "./engine/drag";
 import { BrickAudio } from "./engine/audio";
@@ -12,7 +13,7 @@ import "./style.css";
 let language: Language =
   localStorage.getItem("bricks-language") === "tr" ? "tr" : "en";
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><div id="cards"></div><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
+app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><div id="cards"></div><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
 const $ = <E extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<E>(s)!;
 const text = (key: keyof typeof messages.en) => messages[language][key];
@@ -146,6 +147,47 @@ function beginTurn(to: T.Quaternion, label: string) {
   };
   dirty = true;
 }
+const seamLines = new Map<Connection, T.LineLoop>();
+const seamMaterial = new T.LineBasicMaterial({ color: 0xd49b36 });
+function updateSeams() {
+  const members =
+    selected && !turning && !pressing
+      ? component(selected.id, world.links)
+      : new Set<number>();
+  const active = new Set(world.links.filter((l) => members.has(l.a)));
+  for (const [link, line] of seamLines)
+    if (!active.has(link)) {
+      scene.remove(line);
+      line.geometry.dispose();
+      seamLines.delete(link);
+    }
+  for (const link of active) {
+    let line = seamLines.get(link);
+    if (!line) {
+      line = new T.LineLoop(
+        new T.BufferGeometry().setAttribute(
+          "position",
+          new T.Float32BufferAttribute(new Float32Array(12), 3),
+        ),
+        seamMaterial,
+      );
+      line.userData.link = link;
+      seamLines.set(link, line);
+      scene.add(line);
+    }
+    const points = seamPoints(world.get(link.a), world.get(link.b));
+    line.visible = points.length === 4;
+    if (points.length) {
+      const position = line.geometry.getAttribute(
+        "position",
+      ) as T.BufferAttribute;
+      points.forEach((p, i) => position.setXYZ(i, p.x, p.y, p.z));
+      position.needsUpdate = true;
+      line.geometry.computeBoundingSphere();
+      line.updateMatrixWorld();
+    }
+  }
+}
 const outline = new T.BoxHelper(new T.Object3D(), 0x5c8070);
 outline.visible = false;
 scene.add(outline);
@@ -247,17 +289,20 @@ function renderSelection() {
   const press = $("#press");
   press.onclick = () => startPress();
   if (links.length)
-    $("#detach").onclick = () => {
-      cancelPress();
-      const link = world.links[Number($<HTMLSelectElement>("#seams").value)];
-      if (!world.detach(link, b.id)) toast(text("cycle"));
-      else {
-        select(world.get(link.a));
-        audio.play(0.55, true);
-        toast(text("separated"));
-      }
-      dirty = true;
-    };
+    $("#detach").onclick = () =>
+      separate(world.links[Number($<HTMLSelectElement>("#seams").value)]);
+}
+function separate(link: Connection) {
+  if (!selected || !world.links.includes(link) || turning || pressing) return;
+  endDrag();
+  if (!world.detach(link, selected.id)) toast(text("cycle"));
+  else {
+    select(world.get(link.a));
+    audio.play(0.55, true);
+    toast(text("separated"));
+  }
+  dirty = true;
+  updateSeams();
 }
 function deleteSelected() {
   if (!selected) return;
@@ -439,7 +484,7 @@ let drag: null | {
   offset: T.Vector3;
   plane: T.Plane;
 } = null;
-function cast(e: PointerEvent) {
+function cast(e: MouseEvent) {
   const r = canvas.getBoundingClientRect();
   mouse.set(
     ((e.clientX - r.left) / r.width) * 2 - 1,
@@ -447,12 +492,51 @@ function cast(e: PointerEvent) {
   );
   ray.setFromCamera(mouse, camera);
 }
+let seamPointer: { x: number; y: number; link: Connection } | null = null;
+let seamClick: Connection | null = null;
+function pickSeam() {
+  updateSeams();
+  ray.params.Line.threshold = Math.min(
+    0.16,
+    Math.max(0.04, camera.position.distanceTo(controls.target) * 0.004),
+  );
+  const hits = ray.intersectObjects(
+    [...seamLines.values()].filter((l) => l.visible),
+    false,
+  );
+  const front = ray.intersectObjects(
+    world.bricks.map((b) => b.mesh),
+    true,
+  )[0]?.distance;
+  const hit = hits.find((h) => visibleSeamHit(h.distance, front));
+  return hit?.object.userData.link as Connection | undefined;
+}
+canvas.addEventListener("dblclick", (e) => {
+  if (e.button !== 0 || turning || pressing || !selected || !seamClick) return;
+  cast(e);
+  const link = pickSeam();
+  if (link && link === seamClick) {
+    e.preventDefault();
+    audio.unlock();
+    separate(link);
+  }
+  seamClick = null;
+});
 canvas.addEventListener(
   "pointerdown",
   (e) => {
     audio.unlock();
     if (e.button !== 0 || pressing || turning) return;
     cast(e);
+    const seam = pickSeam();
+    if (seam) {
+      seamPointer = { x: e.clientX, y: e.clientY, link: seam };
+      controls.enabled = false;
+      e.stopImmediatePropagation();
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    seamClick = null;
     const hit = ray.intersectObjects(
       world.bricks.map((b) => b.mesh),
       true,
@@ -480,6 +564,13 @@ canvas.addEventListener(
   true,
 );
 canvas.addEventListener("pointermove", (e) => {
+  if (
+    seamPointer &&
+    Math.hypot(e.clientX - seamPointer.x, e.clientY - seamPointer.y) > 4
+  ) {
+    seamPointer = null;
+    seamClick = null;
+  }
   if (!drag || turning) return;
   cast(e);
   if (
@@ -509,8 +600,16 @@ function endDrag() {
   drag = null;
   controls.enabled = true;
 }
-canvas.addEventListener("pointerup", endDrag);
-canvas.addEventListener("pointercancel", endDrag);
+canvas.addEventListener("pointerup", () => {
+  seamClick = seamPointer?.link ?? null;
+  seamPointer = null;
+  endDrag();
+});
+canvas.addEventListener("pointercancel", () => {
+  seamPointer = null;
+  seamClick = null;
+  endDrag();
+});
 window.addEventListener("blur", () => {
   endDrag();
   cancelTurn();
@@ -642,6 +741,7 @@ function frame(now: number) {
     renderSelection();
     dirty = false;
   }
+  updateSeams();
   outline.visible = !!selected;
   if (selected) {
     outline.setFromObject(selected.mesh);
