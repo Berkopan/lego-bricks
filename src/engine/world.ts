@@ -3,6 +3,7 @@ import * as T from "three";
 import { OBB } from "three/addons/math/OBB.js";
 import { catalog, connectors, type BrickSpec } from "./catalog";
 import { component, mating, type Link, type Pose } from "./connections";
+import { overlapDepth, bottomOf } from "./overlap";
 import { brickMesh } from "./geometry";
 export interface Brick extends Pose {
   body: R.RigidBody;
@@ -38,6 +39,65 @@ export class BrickWorld {
         .setTranslation(0, -0.2, 0)
         .setFriction(0.65),
     );
+  }
+  /** Reserve a free position before releasing the previous held assembly.
+   * Synchronous scene insertion makes repeated clicks safe even without a physics step.
+   * Full envelopes include studs, orientation, and a small separation margin.
+   */
+  spawnHeld(spec: BrickSpec, color: string, center = new T.Vector3(0, 6, 0)) {
+    if (this.bricks.length >= 250) return null;
+    const envelope = (spec: BrickSpec, p: T.Vector3, q: T.Quaternion) =>
+      new OBB(
+        p.clone().add(new T.Vector3(0, 0.11, 0).applyQuaternion(q)),
+        new T.Vector3(
+          spec.cols / 2 + 0.1,
+          spec.height / 2 + 0.21,
+          spec.rows / 2 + 0.1,
+        ),
+        new T.Matrix3().setFromMatrix4(
+          new T.Matrix4().makeRotationFromQuaternion(q),
+        ),
+      );
+    const occupied = this.bricks.map((b) =>
+      envelope(
+        b.spec,
+        new T.Vector3().copy(b.body.translation()),
+        new T.Quaternion().copy(b.body.rotation()),
+      ),
+    );
+    const origin = new T.Vector3(
+      T.MathUtils.clamp(center.x, -60, 60),
+      Math.max(6, center.y, spec.height / 2 + 0.3),
+      T.MathUtils.clamp(center.z, -60, 60),
+    );
+    const stride = Math.max(spec.cols, spec.rows) + 0.3;
+    const rotation = new T.Quaternion();
+    for (let ring = 0; ring <= 16; ring++) {
+      const candidates: T.Vector3[] = [];
+      for (let x = -ring; x <= ring; x++)
+        for (let z = -ring; z <= ring; z++) {
+          if (Math.max(Math.abs(x), Math.abs(z)) !== ring) continue;
+          candidates.push(
+            origin.clone().add(new T.Vector3(x * stride, 0, z * stride)),
+          );
+        }
+      candidates.sort(
+        (a, b) => a.distanceToSquared(origin) - b.distanceToSquared(origin),
+      );
+      for (const p of candidates) {
+        if (
+          Math.abs(p.x) + spec.cols / 2 > 95 ||
+          Math.abs(p.z) + spec.rows / 2 > 95
+        )
+          continue;
+        const bounds = envelope(spec, p, rotation);
+        if (occupied.some((other) => bounds.intersectsOBB(other))) continue;
+        const brick = this.add(spec, color, p);
+        this.grab(brick.id);
+        return brick;
+      }
+    }
+    return null;
   }
   add(
     spec: BrickSpec,
@@ -208,21 +268,32 @@ export class BrickWorld {
       ),
     );
   }
-  clearAt(poses: Map<number, { p: T.Vector3; q: T.Quaternion }>) {
+  clearAt(
+    poses: Map<number, { p: T.Vector3; q: T.Quaternion }>,
+    previous?: Map<number, OBB>,
+  ) {
     for (const [id, { p, q }] of poses) {
       const b = this.get(id),
         obb = this.obb(b, p, q);
-      const half = obb.halfSize,
-        rot = obb.rotation.elements;
-      const bottom =
-        p.y -
-        (Math.abs(rot[1]) * half.x +
-          Math.abs(rot[4]) * half.y +
-          Math.abs(rot[7]) * half.z);
-      if (bottom < -0.01) return false;
-      for (const other of this.bricks)
-        if (!poses.has(other.id) && obb.intersectsOBB(this.obb(other), 1e-5))
+      const before = previous?.get(id);
+      const bottom = bottomOf(obb);
+      if (bottom < -0.01 && (!before || bottom < bottomOf(before) - 1e-6))
+        return false;
+      for (const other of this.bricks) {
+        if (poses.has(other.id)) continue;
+        const obstacle = this.obb(other);
+        if (!obb.intersectsOBB(obstacle, 1e-5)) continue;
+        // Existing overlaps may only stay level or shrink at every swept step.
+        // New intersections, deepening overlaps, and passing through walls remain blocked.
+        if (
+          !before ||
+          !before.intersectsOBB(obstacle, 1e-5) ||
+          obb.center.distanceToSquared(obstacle.center) <
+            before.center.distanceToSquared(obstacle.center) - 1e-6 ||
+          overlapDepth(obb, obstacle) > overlapDepth(before, obstacle) + 1e-6
+        )
           return false;
+      }
     }
     return true;
   }
@@ -241,6 +312,9 @@ export class BrickWorld {
     );
     const steps = Math.max(1, Math.ceil((distance + angle * radius) / 0.15));
     let poses = new Map<number, { p: T.Vector3; q: T.Quaternion }>();
+    let previous = new Map(
+      [...this.held].map((i) => [i, this.obb(this.get(i))]),
+    );
     // Sweep both translation and rotation so a large input cannot tunnel
     // through an obstacle even when the destination itself is clear.
     for (let step = 1; step <= steps; step++) {
@@ -262,7 +336,10 @@ export class BrickWorld {
           q: delta.clone().multiply(b.rotation),
         });
       }
-      if (!this.clearAt(poses)) return false;
+      if (!this.clearAt(poses, previous)) return false;
+      previous = new Map(
+        [...poses].map(([id, { p, q }]) => [id, this.obb(this.get(id), p, q)]),
+      );
     }
     for (const [i, { p, q }] of poses) {
       const b = this.get(i);

@@ -206,3 +206,94 @@ test("pressing and settling an assembly do not emit impact sounds", async () => 
   assert.equal(sounds.length, 0);
   w.world.free();
 });
+
+test("rapid library creation reserves distinct positions without simulation steps", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  for (let i = 0; i < 60; i++) {
+    const b = w.spawnHeld(
+      catalog[i % catalog.length],
+      "#df553e",
+      new Vector3(0, 6, 0),
+    );
+    assert.ok(b);
+    for (const other of w.bricks)
+      if (other !== b)
+        assert.equal(w.obb(b).intersectsOBB(w.obb(other)), false);
+    assert.deepEqual([...w.held], [b.id]);
+  }
+  for (let i = 0; i < 360; i++) w.step();
+  for (const b of w.bricks) {
+    assert.ok(b.position.toArray().every(Number.isFinite));
+    assert.ok(b.position.y > 0 && b.position.y < 10);
+    assert.ok(new Vector3().copy(b.body.linvel()).length() < 1);
+  }
+  w.world.free();
+});
+test("spawn considers rotated parts and studs, and keeps a held part when capacity is reached", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  const obstacle = w.add(
+    catalog[2],
+    "#df553e",
+    new Vector3(0, 6, 0),
+    new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 4),
+  );
+  const b = w.spawnHeld(catalog[1], "#66846b", new Vector3(0, 6, 0));
+  assert.ok(b);
+  assert.equal(w.obb(b).intersectsOBB(w.obb(obstacle)), false);
+  for (let i = w.bricks.length; i < 250; i++)
+    assert.ok(w.spawnHeld(catalog[0], "#66846b"));
+  const held = [...w.held];
+  assert.equal(w.spawnHeld(catalog[0], "#66846b"), null);
+  assert.equal(w.bricks.length, 250);
+  assert.deepEqual([...w.held], held);
+  w.world.free();
+});
+
+test("an already overlapping brick can escape but cannot deepen or enter new blockers", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  w.add(catalog[1], "#df553e", new Vector3(0, 6, 0));
+  const b = w.add(catalog[1], "#66846b", new Vector3(0.5, 6, 0));
+  w.grab(b.id);
+  assert.equal(w.transform(b.id, new Vector3(0.3, 6, 0)), false);
+  assert.ok(w.transform(b.id, new Vector3(0.8, 6, 0)));
+  assert.ok(w.transform(b.id, new Vector3(3, 6, 0)));
+  w.add(catalog[1], "#df553e", new Vector3(5, 6, 0));
+  assert.equal(w.transform(b.id, new Vector3(7, 6, 0)), false);
+  w.world.free();
+});
+test("coincident bricks and slightly buried bricks can be lifted free", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  w.add(catalog[1], "#df553e", new Vector3(0, 6, 0));
+  const b = w.add(catalog[1], "#66846b", new Vector3(0, 6, 0));
+  w.grab(b.id);
+  assert.ok(w.transform(b.id, new Vector3(0, 8, 0)));
+  const buried = w.add(catalog[1], "#66846b", new Vector3(5, 0.5, 0));
+  w.grab(buried.id);
+  assert.equal(w.transform(buried.id, new Vector3(5, 0.4, 0)), false);
+  assert.ok(w.transform(buried.id, new Vector3(5, 1, 0)));
+  w.world.free();
+});
+
+test("spawn avoids stud-only overlap and leaves the selection held when the search is full", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  w.add(catalog[1], "#df553e", new Vector3(0, 4.65, 0));
+  const b = w.spawnHeld(catalog[1], "#66846b", new Vector3(0, 6, 0));
+  assert.ok(b);
+  assert.ok(Math.hypot(b.position.x, b.position.z) > 0);
+  assert.ok(w.transform(b.id, b.position.clone().add(new Vector3(0, 0.5, 0))));
+  // A large imported/custom obstacle occupies the entire bounded search area.
+  const obstacle = w.add(catalog[2], "#df553e", new Vector3(0, 6, 0));
+  // Override only its bounds to test exhaustion without allocating 36,100 studs.
+  obstacle.spec = { ...catalog[2], cols: 190, rows: 190, height: 20 };
+  const count = w.bricks.length,
+    held = [...w.held];
+  assert.equal(w.spawnHeld(catalog[1], "#66846b"), null);
+  assert.equal(w.bricks.length, count);
+  assert.deepEqual([...w.held], held);
+  w.world.free();
+});

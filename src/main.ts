@@ -147,19 +147,14 @@ function renderCards() {
       (el.onclick = () => {
         if (world.bricks.length >= 250) return toast(text("limit"));
         cancelPress();
-        world.release();
         const spec = catalog.find((s) => s.id === el.dataset.spec)!;
-        const b = world.add(
+        const b = world.spawnHeld(
           spec,
           currentColor,
-          new T.Vector3(
-            controls.target.x,
-            6 + Math.random(),
-            controls.target.z,
-          ),
+          new T.Vector3(controls.target.x, 6, controls.target.z),
         );
+        if (!b) return toast(text("spawnBlocked"));
         select(b);
-        world.grab(b.id);
         dirty = true;
         audio.unlock();
       }),
