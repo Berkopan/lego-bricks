@@ -44,7 +44,7 @@ interface MobileOptions {
 export function setupMobile(options: MobileOptions) {
   const { canvas, camera, controls } = options;
   const root = document.documentElement;
-  const compact = matchMedia("(max-width: 1024px), (any-pointer: coarse)");
+  const compact = matchMedia("(pointer: coarse)");
   const selection = document.querySelector<HTMLElement>("#selection")!;
   let cameraMode = false;
   let expanded = true;
