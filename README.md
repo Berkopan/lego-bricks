@@ -55,13 +55,9 @@ npm run preview # serve the production build locally
 
 A held object remains in your hand when you stop dragging. This lets you adjust height and rotation before releasing it. Lift above nearby bricks before moving across them. The connection example in the help dialog starts with two aligned bricks so you can try pressing immediately.
 
+Choose Ivory, Sand, Slate, or Grass from the ground selector in the library. This visual preference is remembered in your browser; changing it keeps your bricks and physics intact. Grass uses a locally generated texture and requires no downloads.
+
 Audio starts after a user gesture, in accordance with browser autoplay rules. Use the music-note button to mute it. No audio is streamed at runtime.
-
-## Deploy to GitHub Pages
-
-Run `npm run build` to generate `dist/`. Publish the contents of that directory using your preferred GitHub Pages setup. No deployment workflow is bundled; publishing is managed by the repository owner.
-
-Relative asset URLs work at a repository subpath such as `/lego-bricks/` and at a domain root. `dist/` can also be uploaded to any static web host. Opening `index.html` directly through `file://` is not supported.
 
 ## Engine structure
 
