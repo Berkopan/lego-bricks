@@ -1,4 +1,6 @@
 import * as T from "three";
+import { ConvexGeometry } from "three/addons/geometries/ConvexGeometry.js";
+import { solids } from "./solids";
 import { connectors, type BrickSpec } from "./catalog";
 export function brickMesh(s: BrickSpec, color: string) {
   const group = new T.Group();
@@ -16,6 +18,31 @@ export function brickMesh(s: BrickSpec, color: string) {
     m.receiveShadow = true;
     group.add(m);
   };
+  if (s.shape) {
+    for (const solid of solids(s, 48)) {
+      if (solid.kind === "box") {
+        add(
+          new T.BoxGeometry(
+            ...(solid.half.map((v) => v * 2) as [number, number, number]),
+          ),
+          ...(solid.center as [number, number, number]),
+        );
+      } else {
+        const points = [];
+        for (let i = 0; i < solid.vertices.length; i += 3)
+          points.push(new T.Vector3().fromArray(solid.vertices, i));
+        add(new ConvexGeometry(points), 0, 0, 0);
+      }
+    }
+    for (const p of connectors(s))
+      add(
+        new T.CylinderGeometry(0.3, 0.3, 0.22, 32),
+        p.x,
+        s.height / 2 + 0.11,
+        p.z,
+      );
+    return group;
+  }
   // Hollow underside, four walls, roof and hollow support tubes.
   const w = s.cols - 0.04,
     d = s.rows - 0.04,

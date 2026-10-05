@@ -222,7 +222,8 @@ test("rapid library creation reserves distinct positions without simulation step
         assert.equal(w.obb(b).intersectsOBB(w.obb(other)), false);
     assert.deepEqual([...w.held], [b.id]);
   }
-  for (let i = 0; i < 360; i++) w.step();
+  // Round parts may roll after landing; allow five seconds to settle.
+  for (let i = 0; i < 600; i++) w.step();
   for (const b of w.bricks) {
     assert.ok(b.position.toArray().every(Number.isFinite));
     assert.ok(b.position.y > 0 && b.position.y < 10);

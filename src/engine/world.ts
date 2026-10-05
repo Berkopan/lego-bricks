@@ -5,6 +5,14 @@ import { catalog, connectors, type BrickSpec } from "./catalog";
 import { component, mating, type Link, type Pose } from "./connections";
 import { overlapDepth, bottomOf } from "./overlap";
 import { brickMesh } from "./geometry";
+import { solids, type Solid } from "./solids";
+function solidCollider(s: Solid) {
+  return s.kind === "box"
+    ? R.ColliderDesc.cuboid(
+        ...(s.half as [number, number, number]),
+      ).setTranslation(...(s.center as [number, number, number]))
+    : R.ColliderDesc.convexHull(new Float32Array(s.vertices))!;
+}
 export interface Brick extends Pose {
   body: R.RigidBody;
   mesh: T.Group;
@@ -113,32 +121,16 @@ export class BrickWorld {
         .setLinearDamping(0.18)
         .setAngularDamping(0.35),
     );
-    const w = spec.cols - 0.04,
-      d = spec.rows - 0.04,
-      h = spec.height,
-      t = 0.16;
-    const box = (
-      x: number,
-      y: number,
-      z: number,
-      hx: number,
-      hy: number,
-      hz: number,
-    ) =>
+    const h = spec.height;
+    for (const solid of solids(spec))
       this.world.createCollider(
-        R.ColliderDesc.cuboid(hx, hy, hz)
-          .setTranslation(x, y, z)
+        solidCollider(solid)
           .setFriction(0.55)
           .setRestitution(0.08)
           .setDensity(0.65)
           .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS),
         body,
       );
-    box(0, h / 2 - 0.09, 0, w / 2, 0.09, d / 2);
-    for (const k of [-1, 1]) {
-      box((k * (w - t)) / 2, -0.075, 0, t / 2, (h - 0.15) / 2, d / 2);
-      box(0, -0.075, (k * (d - t)) / 2, (w - 2 * t) / 2, (h - 0.15) / 2, t / 2);
-    }
     for (const p of connectors(spec))
       this.world.createCollider(
         R.ColliderDesc.cylinder(0.11, 0.3)
@@ -268,6 +260,54 @@ export class BrickWorld {
       ),
     );
   }
+  private clearanceShapes = new Map<
+    BrickSpec,
+    { shape: R.Shape; offset: T.Vector3 }[]
+  >();
+  private shapes(spec: BrickSpec) {
+    let cached = this.clearanceShapes.get(spec);
+    if (!cached) {
+      cached = spec.shape
+        ? solids(spec).map((s) => ({
+            shape: solidCollider(s).shape,
+            offset: new T.Vector3(
+              ...((s.kind === "box" ? s.center : [0, 0, 0]) as [
+                number,
+                number,
+                number,
+              ]),
+            ),
+          }))
+        : [
+            {
+              shape: new R.Cuboid(
+                spec.cols / 2 - 0.035,
+                spec.height / 2 - 0.015,
+                spec.rows / 2 - 0.035,
+              ),
+              offset: new T.Vector3(),
+            },
+          ];
+      this.clearanceShapes.set(spec, cached);
+    }
+    return cached;
+  }
+  private detailedOverlap(a: Brick, box: OBB, b: Brick) {
+    const q = new T.Quaternion().setFromRotationMatrix(
+      new T.Matrix4().setFromMatrix3(box.rotation),
+    );
+    return this.shapes(a.spec).some((sa) =>
+      this.shapes(b.spec).some((sb) =>
+        sa.shape.intersectsShape(
+          sa.offset.clone().applyQuaternion(q).add(box.center),
+          q,
+          sb.shape,
+          sb.offset.clone().applyQuaternion(b.rotation).add(b.position),
+          b.rotation,
+        ),
+      ),
+    );
+  }
   clearAt(
     poses: Map<number, { p: T.Vector3; q: T.Quaternion }>,
     previous?: Map<number, OBB>,
@@ -283,11 +323,14 @@ export class BrickWorld {
         if (poses.has(other.id)) continue;
         const obstacle = this.obb(other);
         if (!obb.intersectsOBB(obstacle, 1e-5)) continue;
+        const detailed = !!(b.spec.shape || other.spec.shape);
+        if (detailed && !this.detailedOverlap(b, obb, other)) continue;
         // Existing overlaps may only stay level or shrink at every swept step.
         // New intersections, deepening overlaps, and passing through walls remain blocked.
         if (
           !before ||
           !before.intersectsOBB(obstacle, 1e-5) ||
+          (detailed && !this.detailedOverlap(b, before, other)) ||
           obb.center.distanceToSquared(obstacle.center) <
             before.center.distanceToSquared(obstacle.center) - 1e-6 ||
           overlapDepth(obb, obstacle) > overlapDepth(before, obstacle) + 1e-6
