@@ -802,3 +802,10 @@ dialog p {
   margin: 12px 0 0;
   width: 100%;
 }
+#sound {
+  display: grid;
+  place-items: center;
+}
+#sound svg {
+  pointer-events: none;
+}

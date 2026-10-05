@@ -15,7 +15,7 @@ import "./style.css";
 let language: Language =
   localStorage.getItem("bricks-language") === "tr" ? "tr" : "en";
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><label class="ground-control"><span class="eyebrow" data-t="ground"></span><select id="ground"></select></label><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div><select id="part-filter" aria-label="Parts"></select><div id="cards"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
+app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true"></button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><label class="ground-control"><span class="eyebrow" data-t="ground"></span><select id="ground"></select></label><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div><select id="part-filter" aria-label="Parts"></select><div id="cards"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
 const $ = <E extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<E>(s)!;
 const text = (key: keyof typeof messages.en) => messages[language][key];
@@ -246,7 +246,7 @@ function translate() {
       el.classList.toggle("active", el.dataset.lang === language),
     );
   $("#help").title = text("help");
-  $("#sound").title = text("sound");
+  renderSoundButton();
   $("#view").title = text("view");
   $("#ground").setAttribute("aria-label", text("ground"));
   $("#library-toggle").setAttribute("aria-expanded", String(panelOpen));
@@ -453,10 +453,17 @@ $("#library-toggle").onclick = () => {
 };
 $("#help").onclick = () => $<HTMLDialogElement>("#help-dialog").showModal();
 $("#close-help").onclick = () => $<HTMLDialogElement>("#help-dialog").close();
+function renderSoundButton() {
+  const button = $("#sound");
+  const label = text(audio.enabled ? "soundOn" : "soundOff");
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.setAttribute("aria-pressed", String(audio.enabled));
+  button.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M11 5 6 9H3v6h3l5 4V5Z"/>${audio.enabled ? '<path d="M15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/>' : '<path d="m16 9 5 6m0-6-5 6"/>'}</svg>`;
+}
 $("#sound").onclick = () => {
   audio.enabled = !audio.enabled;
-  $("#sound").setAttribute("aria-pressed", String(audio.enabled));
-  $("#sound").textContent = audio.enabled ? "♫" : "♩";
+  renderSoundButton();
   audio.unlock();
 };
 $("#pause").onclick = () => {
