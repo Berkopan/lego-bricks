@@ -34,15 +34,23 @@ export function component(
   return result;
 }
 /** Only co-oriented stud/socket surfaces and integer pitch offsets can engage. */
-export function mating(upper: Pose, lower: Pose, maxGap = 0.65) {
+export function mating(
+  upper: Pose,
+  lower: Pose,
+  maxGap = 0.65,
+  assist = false,
+) {
   const inv = lower.rotation.clone().invert();
   const relative = inv.clone().multiply(upper.rotation);
   const up = new Vector3(0, 1, 0).applyQuaternion(relative);
-  if (up.y < 0.999) return null;
+  if (up.y < (assist ? Math.cos(Math.PI / 36) : 0.999)) return null;
   const axis = new Vector3(1, 0, 0).applyQuaternion(relative);
   const yaw = Math.atan2(-axis.z, axis.x),
     quarter = Math.round(yaw / (Math.PI / 2));
-  if (Math.abs(yaw - (quarter * Math.PI) / 2) > 0.025) return null;
+  // A held part can approach within 12 degrees; actual contacts and saved links
+  // still use the strict tolerances. The press moves to the exact connector pose.
+  if (Math.abs(yaw - (quarter * Math.PI) / 2) > (assist ? Math.PI / 15 : 0.025))
+    return null;
   const local = upper.position.clone().sub(lower.position).applyQuaternion(inv);
   const height = (upper.spec.height + lower.spec.height) / 2;
   if (local.y < height - 0.06 || local.y > height + maxGap) return null;
@@ -68,7 +76,7 @@ export function mating(upper: Pose, lower: Pose, maxGap = 0.65) {
         dz = z;
       }
     }
-  if (nearest > 0.17) return null;
+  if (nearest > (assist ? 0.45 : 0.17)) return null;
   const count = bottoms.filter((b) =>
     tops.some(
       (a) =>

@@ -297,8 +297,8 @@ export class BrickWorld {
     }
     return true;
   }
-  transform(id: number, target: T.Vector3, rotation?: T.Quaternion) {
-    if (!this.held.has(id)) return false;
+  private sweptPoses(id: number, target: T.Vector3, rotation?: T.Quaternion) {
+    if (!this.held.has(id)) return null;
     const root = this.get(id);
     const desired = rotation ?? root.rotation;
     const distance = root.position.distanceTo(target);
@@ -336,11 +336,16 @@ export class BrickWorld {
           q: delta.clone().multiply(b.rotation),
         });
       }
-      if (!this.clearAt(poses, previous)) return false;
+      if (!this.clearAt(poses, previous)) return null;
       previous = new Map(
         [...poses].map(([id, { p, q }]) => [id, this.obb(this.get(id), p, q)]),
       );
     }
+    return poses;
+  }
+  transform(id: number, target: T.Vector3, rotation?: T.Quaternion) {
+    const poses = this.sweptPoses(id, target, rotation);
+    if (!poses) return false;
     for (const [i, { p, q }] of poses) {
       const b = this.get(i);
       b.body.setTranslation(p, true);
@@ -363,7 +368,7 @@ export class BrickWorld {
       for (const lower of this.bricks) {
         if (this.held.has(lower.id)) continue;
         const upper = this.get(member),
-          surfaceFit = mating(upper, lower);
+          surfaceFit = mating(upper, lower, 0.65, true);
         if (!surfaceFit) continue;
         const distance = surfaceFit.position.distanceToSquared(upper.position);
         if (distance >= bestDistance) continue;
@@ -381,6 +386,9 @@ export class BrickWorld {
             .add(surfaceFit.position),
           rotation: delta.clone().multiply(root.rotation),
         };
+        // Do not advertise an alignment that would drive another assembly member
+        // into the floor or an obstacle. Try other contact members if blocked.
+        if (!this.sweptPoses(id, fit.position, fit.rotation)) continue;
         best = { upper, lower, surfaceFit, fit };
         bestDistance = distance;
       }
