@@ -747,3 +747,11 @@ dialog p {
 #cards {
   margin-top: 16px;
 }
+.selection-actions {
+  flex-wrap: wrap;
+}
+.selection-actions .remove {
+  color: #a14336;
+  flex-basis: 100%;
+  margin-left: 0;
+}

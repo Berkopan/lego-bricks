@@ -2,6 +2,7 @@ import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { BrickWorld, type Brick } from "./engine/world";
+import { rotationAt, TURN_DURATION_MS } from "./engine/rotation";
 import { dragTarget } from "./engine/drag";
 import { BrickAudio } from "./engine/audio";
 import { catalog, colors } from "./engine/catalog";
@@ -11,7 +12,7 @@ import "./style.css";
 let language: Language =
   localStorage.getItem("bricks-language") === "tr" ? "tr" : "en";
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><div id="cards"></div><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="rotate"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
+app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><div id="cards"></div><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
 const $ = <E extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<E>(s)!;
 const text = (key: keyof typeof messages.en) => messages[language][key];
@@ -90,6 +91,61 @@ let pressing: null | {
   target: T.Vector3;
   rotation: T.Quaternion;
 } = null;
+let turning: null | {
+  id: number;
+  start: number;
+  position: T.Vector3;
+  from: T.Quaternion;
+  to: T.Quaternion;
+  label: string;
+} = null;
+const rotationAxis = new T.ArrowHelper(
+  new T.Vector3(0, 1, 0),
+  new T.Vector3(),
+  4,
+  0x628b65,
+  0.3,
+  0.16,
+);
+rotationAxis.visible = false;
+scene.add(rotationAxis);
+function cancelTurn() {
+  turning = null;
+  rotationAxis.visible = false;
+}
+function beginTurn(to: T.Quaternion, label: string) {
+  if (!selected || turning || pressing) return;
+  if (!world.held.has(selected.id)) world.grab(selected.id);
+  const from = selected.rotation.clone();
+  if (from.angleTo(to) < 1e-6) return;
+  const delta = to.clone().multiply(from.clone().invert()).normalize();
+  if (delta.w < 0) {
+    delta.x *= -1;
+    delta.y *= -1;
+    delta.z *= -1;
+    delta.w *= -1;
+  }
+  const axis = new T.Vector3(delta.x, delta.y, delta.z).normalize();
+  rotationAxis.setDirection(axis);
+  rotationAxis.position.copy(selected.position).addScaledVector(axis, -2);
+  rotationAxis.setColor(
+    Math.abs(axis.y) > 0.9
+      ? 0x628b65
+      : Math.abs(axis.x) > 0.9
+        ? 0xc55a49
+        : 0x4c80ae,
+  );
+  rotationAxis.visible = true;
+  turning = {
+    id: selected.id,
+    start: performance.now(),
+    position: selected.position.clone(),
+    from,
+    to,
+    label,
+  };
+  dirty = true;
+}
 const outline = new T.BoxHelper(new T.Object3D(), 0x5c8070);
 outline.visible = false;
 scene.add(outline);
@@ -161,6 +217,7 @@ function renderCards() {
   );
 }
 function select(b: Brick | null) {
+  cancelTurn();
   cancelPress();
   selected = b;
   dirty = true;
@@ -175,18 +232,16 @@ function renderSelection() {
   const held = world.held.has(b.id),
     links = world.links.filter((l) => component(b.id, world.links).has(l.a));
   $("#selection-content").innerHTML =
-    `<div class="selected-title"><span class="color-chip" style="background:${b.color}"></span><h3>${b.spec.label}</h3><span class="pill">${held ? text("held") : text("free")}</span></div><div class="selection-actions"><button id="grab" class="secondary">${held ? text("drop") : text("grab")} <span>${held ? "Esc" : "↖"}</span></button><button id="rotate" title="R">↻ <span>${text("rotate")}</span></button><button id="upright" title="U">${text("upright")}</button><button id="remove" class="remove" title="${text("delete")}">×</button></div><div class="height-actions"><span>${text("lift")}</span><button id="down">−</button><button id="up">+</button><kbd>Q / E</kbd></div><button id="press" class="press" ${held ? "" : "disabled"}><span>${text("press")}</span><kbd>Space</kbd></button>${links.length ? `<div class="seam-label eyebrow">${text("seam")}</div><select id="seams" aria-label="${text("seam")}">${links.map((l) => `<option value="${world.links.indexOf(l)}">#${l.a} ↔ #${l.b} · ${l.studs} ${text("studs")}</option>`).join("")}</select><button id="detach" class="detach">↗ ${text("detach")}</button>` : ""}`;
+    `<div class="selected-title"><span class="color-chip" style="background:${b.color}"></span><h3>${b.spec.label}</h3><span class="pill">${held ? text("held") : text("free")}</span></div><div class="selection-actions"><button id="grab" class="secondary">${held ? text("drop") : text("grab")} <span>${held ? "Esc" : "↖"}</span></button><button id="rotate" title="R">↻ <span>${text("rotate")}</span></button><button id="upright" title="U">${text("upright")}</button><button id="remove" class="remove" title="${text("delete")} (Delete)" aria-label="${text("delete")}">${text("delete")}</button></div><div class="height-actions"><span>${text("lift")}</span><button id="down">−</button><button id="up">+</button><kbd>Q / E</kbd></div><button id="press" class="press" ${held ? "" : "disabled"}><span>${text("press")}</span><kbd>Space</kbd></button>${links.length ? `<div class="seam-label eyebrow">${text("seam")}</div><select id="seams" aria-label="${text("seam")}">${links.map((l) => `<option value="${world.links.indexOf(l)}">#${l.a} ↔ #${l.b} · ${l.studs} ${text("studs")}</option>`).join("")}</select><button id="detach" class="detach">↗ ${text("detach")}</button>` : ""}`;
   $("#grab").onclick = () => {
+    cancelTurn();
     cancelPress();
     held ? world.release() : world.grab(b.id);
     dirty = true;
   };
   $("#rotate").onclick = () => rotate("y");
   $("#upright").onclick = upright;
-  $("#remove").onclick = () => {
-    world.remove(b.id);
-    select(null);
-  };
+  $("#remove").onclick = deleteSelected;
   $("#up").onclick = () => height(0.24);
   $("#down").onclick = () => height(-0.24);
   const press = $("#press");
@@ -204,8 +259,17 @@ function renderSelection() {
       dirty = true;
     };
 }
+function deleteSelected() {
+  if (!selected) return;
+  cancelPress();
+  endDrag();
+  const id = selected.id;
+  select(null);
+  world.remove(id);
+  toast(text("deleted"));
+}
 function height(amount: number) {
-  if (!selected || pressing) return;
+  if (!selected || pressing || turning) return;
   if (!world.held.has(selected.id)) world.grab(selected.id);
   if (
     !world.transform(
@@ -217,7 +281,7 @@ function height(amount: number) {
   dirty = true;
 }
 function rotate(axis: "x" | "y" | "z") {
-  if (!selected || pressing) return;
+  if (!selected || pressing || turning) return;
   if (!world.held.has(selected.id)) world.grab(selected.id);
   const q = new T.Quaternion()
     .setFromAxisAngle(
@@ -229,24 +293,23 @@ function rotate(axis: "x" | "y" | "z") {
       Math.PI / 2,
     )
     .multiply(selected.rotation);
-  if (!world.transform(selected.id, selected.position, q))
-    toast(text("blocked"));
-  dirty = true;
+  beginTurn(
+    q,
+    text(axis === "y" ? "axisY" : axis === "x" ? "axisX" : "axisZ") + " · +90°",
+  );
 }
 function upright() {
-  if (!selected || pressing) return;
+  if (!selected || pressing || turning) return;
   if (!world.held.has(selected.id)) world.grab(selected.id);
   const e = new T.Euler().setFromQuaternion(selected.rotation, "YXZ");
   const q = new T.Quaternion().setFromAxisAngle(
     new T.Vector3(0, 1, 0),
     (Math.round(e.y / (Math.PI / 2)) * Math.PI) / 2,
   );
-  if (!world.transform(selected.id, selected.position, q))
-    toast(text("blocked"));
-  dirty = true;
+  beginTurn(q, text("upright"));
 }
 function startPress() {
-  if (!selected || pressing) return;
+  if (!selected || pressing || turning) return;
   const c = world.candidate(selected.id);
   if (!c) {
     toast(text("notReady"));
@@ -388,7 +451,7 @@ canvas.addEventListener(
   "pointerdown",
   (e) => {
     audio.unlock();
-    if (e.button !== 0 || pressing) return;
+    if (e.button !== 0 || pressing || turning) return;
     cast(e);
     const hit = ray.intersectObjects(
       world.bricks.map((b) => b.mesh),
@@ -417,7 +480,7 @@ canvas.addEventListener(
   true,
 );
 canvas.addEventListener("pointermove", (e) => {
-  if (!drag) return;
+  if (!drag || turning) return;
   cast(e);
   if (
     !drag.moving &&
@@ -450,6 +513,7 @@ canvas.addEventListener("pointerup", endDrag);
 canvas.addEventListener("pointercancel", endDrag);
 window.addEventListener("blur", () => {
   endDrag();
+  cancelTurn();
   cancelPress();
 });
 window.addEventListener("keydown", (e) => {
@@ -465,9 +529,15 @@ window.addEventListener("keydown", (e) => {
     if (!e.repeat) startPress();
   }
   if (e.code === "Escape") {
+    cancelTurn();
     cancelPress();
     world.release();
     dirty = true;
+  }
+  if (e.code === "Delete" || e.code === "Backspace") {
+    e.preventDefault();
+    if (!e.repeat) deleteSelected();
+    return;
   }
   if (e.key.toLowerCase() === "u") upright();
   if (e.key.toLowerCase() === "r") rotate("y");
@@ -525,6 +595,23 @@ function frame(now: number) {
       accumulator -= 1 / 120;
     }
   } else accumulator = 0;
+  if (turning) {
+    const motion = turning,
+      b = world.get(motion.id),
+      progress = Math.min(1, (now - motion.start) / TURN_DURATION_MS);
+    if (!b || !world.held.has(motion.id)) {
+      cancelTurn();
+    } else if (
+      !world.transform(
+        motion.id,
+        motion.position,
+        rotationAt(motion.from, motion.to, progress),
+      )
+    ) {
+      cancelTurn();
+      toast(text("blocked"));
+    } else if (progress === 1) cancelTurn();
+  }
   if (pressing) {
     const p = pressing,
       t = Math.min(1, (now - p.start) / 450),
@@ -558,24 +645,26 @@ function frame(now: number) {
   outline.visible = !!selected;
   if (selected) {
     outline.setFromObject(selected.mesh);
-    const candidate = world.candidate(selected.id);
+    const candidate = turning ? null : world.candidate(selected.id);
     (outline.material as T.LineBasicMaterial).color.set(
       candidate ? 0x46866b : 0x8c9591,
     );
     $("#alignment").textContent = world.held.has(selected.id)
-      ? pressing
-        ? text("pressing")
-        : candidate
-          ? text("ready")
-          : ""
+      ? turning
+        ? turning.label
+        : pressing
+          ? text("pressing")
+          : candidate
+            ? text("ready")
+            : ""
       : "";
     $("#alignment").classList.toggle("ready", !!candidate);
     $("#press")?.toggleAttribute("disabled", !candidate);
     ghost.visible = !!candidate;
     if (candidate) {
-      ghost.scale.set(selected.spec.cols, selected.spec.rows, 1);
+      ghost.scale.set(candidate.upper.spec.cols, candidate.upper.spec.rows, 1);
       ghost.quaternion
-        .copy(candidate.fit.rotation)
+        .copy(candidate.surfaceFit.rotation)
         .multiply(
           new T.Quaternion().setFromAxisAngle(
             new T.Vector3(1, 0, 0),
@@ -583,11 +672,13 @@ function frame(now: number) {
           ),
         );
       ghost.position
-        .copy(candidate.fit.position)
+        .copy(candidate.surfaceFit.position)
         .add(
-          new T.Vector3(0, -selected.spec.height / 2 + 0.02, 0).applyQuaternion(
-            candidate.fit.rotation,
-          ),
+          new T.Vector3(
+            0,
+            -candidate.upper.spec.height / 2 + 0.02,
+            0,
+          ).applyQuaternion(candidate.surfaceFit.rotation),
         );
     }
   } else {
