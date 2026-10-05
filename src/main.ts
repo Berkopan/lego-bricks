@@ -11,11 +11,15 @@ import { BrickAudio } from "./engine/audio";
 import { catalog, colors, partLabel } from "./engine/catalog";
 import { component } from "./engine/connections";
 import { messages, type Language } from "./i18n";
+import { setupMobile } from "./mobile";
+import type { TouchPoint } from "./input/touch";
 import "./style.css";
+import "./mobile.css";
+let mobile: ReturnType<typeof setupMobile> | undefined;
 let language: Language =
   localStorage.getItem("bricks-language") === "tr" ? "tr" : "en";
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true"></button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><label class="ground-control"><span class="eyebrow" data-t="ground"></span><select id="ground"></select></label><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div><select id="part-filter" aria-label="Parts"></select><div id="cards"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
+app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true"></button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle" aria-controls="library"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><label class="ground-control"><span class="eyebrow" data-t="ground"></span><select id="ground"></select></label><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div><select id="part-filter" aria-label="Parts"></select><div id="cards"></div></aside><section id="selection" class="selection" hidden><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
 const $ = <E extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<E>(s)!;
 const text = (key: keyof typeof messages.en) => messages[language][key];
@@ -246,11 +250,14 @@ function translate() {
       el.classList.toggle("active", el.dataset.lang === language),
     );
   $("#help").title = text("help");
+  $("#help").setAttribute("aria-label", text("help"));
+  $("#close-help").setAttribute("aria-label", language === "tr" ? "Yardımı kapat" : "Close help");
   renderSoundButton();
   $("#view").title = text("view");
+  $("#view").setAttribute("aria-label", text("view"));
+  $("#library-toggle").setAttribute("aria-label", text("library"));
   $("#ground").setAttribute("aria-label", text("ground"));
-  $("#library-toggle").setAttribute("aria-expanded", String(panelOpen));
-  $("#library").classList.toggle("closed", !panelOpen);
+  setLibraryOpen(panelOpen);
   $("#pause span").textContent = text(paused ? "paused" : "live");
   $("#ground").innerHTML = groundOptions
     .map((style) => `<option value="${style}">${text(style)}</option>`)
@@ -265,6 +272,7 @@ function translate() {
     .join("");
   $<HTMLSelectElement>("#part-filter").value = partFilter;
   renderCards();
+  mobile?.translate();
   dirty = true;
 }
 const previewPart = partPreviews();
@@ -302,7 +310,9 @@ function renderCards() {
 function select(b: Brick | null) {
   cancelTurn();
   cancelPress();
+  if (selected?.id !== b?.id) mobile?.selected();
   selected = b;
+  if (b && mobile?.enabled) setLibraryOpen(false);
   dirty = true;
 }
 function renderSelection() {
@@ -332,6 +342,7 @@ function renderSelection() {
   if (links.length)
     $("#detach").onclick = () =>
       separate(world.links[Number($<HTMLSelectElement>("#seams").value)]);
+  mobile?.refreshSelection();
 }
 function separate(link: Connection) {
   if (!selected || !world.links.includes(link) || turning || pressing) return;
@@ -355,16 +366,16 @@ function deleteSelected() {
   toast(text("deleted"));
 }
 function height(amount: number) {
+  translateSelected(new T.Vector3(0, amount, 0));
+}
+function translateSelected(delta: T.Vector3) {
   if (!selected || pressing || turning) return;
-  if (!world.held.has(selected.id)) world.grab(selected.id);
-  if (
-    !world.transform(
-      selected.id,
-      selected.position.clone().add(new T.Vector3(0, amount, 0)),
-    )
-  )
+  const wasHeld = world.held.has(selected.id);
+  if (!wasHeld) world.grab(selected.id);
+  if (!world.transform(selected.id, selected.position.clone().add(delta)))
     toast(text("blocked"));
-  dirty = true;
+  // Position/candidate rendering happens every frame; don't replace focused controls.
+  if (!wasHeld) dirty = true;
 }
 function rotate(axis: "x" | "y" | "z") {
   if (!selected || pressing || turning) return;
@@ -445,13 +456,22 @@ document.querySelectorAll<HTMLElement>("[data-lang]").forEach(
       translate();
     }),
 );
-$("#library-toggle").onclick = () => {
-  panelOpen = !panelOpen;
-  $("#library").classList.toggle("closed", !panelOpen);
-  $("#library-toggle").setAttribute("aria-expanded", String(panelOpen));
-  $("#toggle-arrow").textContent = panelOpen ? "↗" : "↙";
+function setLibraryOpen(open: boolean) {
+  panelOpen = open;
+  const library = $("#library");
+  if (!open && library.contains(document.activeElement))
+    $("#library-toggle").focus({ preventScroll: true });
+  library.inert = !open;
+  library.classList.toggle("closed", !open);
+  document.documentElement.classList.toggle("library-open", open);
+  $("#library-toggle").setAttribute("aria-expanded", String(open));
+  $("#toggle-arrow").textContent = open ? "↗" : "↙";
+}
+$("#library-toggle").onclick = () => setLibraryOpen(!panelOpen);
+$("#help").onclick = () => {
+  cancelInteraction();
+  $<HTMLDialogElement>("#help-dialog").showModal();
 };
-$("#help").onclick = () => $<HTMLDialogElement>("#help-dialog").showModal();
 $("#close-help").onclick = () => $<HTMLDialogElement>("#help-dialog").close();
 function renderSoundButton() {
   const button = $("#sound");
@@ -472,6 +492,7 @@ $("#pause").onclick = () => {
   $("#pause span").textContent = text(paused ? "paused" : "live");
 };
 $("#view").onclick = () => {
+  cancelInteraction();
   camera.position.set(14, 15, 19);
   controls.target.set(0, 0.6, 0);
 };
@@ -494,6 +515,7 @@ $("#file").onchange = async () => {
     if (!file) return;
     if (file.size > 1000000) throw Error("Too large");
     const data = JSON.parse(await file.text());
+    cancelInteraction();
     cancelPress();
     world.restore(data);
     select(null);
@@ -505,6 +527,7 @@ $("#file").onchange = async () => {
 };
 $("#reset").onclick = () => {
   if (confirm(text("resetAsk"))) {
+    cancelInteraction();
     cancelPress();
     world.clear();
     select(null);
@@ -513,6 +536,7 @@ $("#reset").onclick = () => {
 $("#demo").onclick = () => {
   $<HTMLDialogElement>("#help-dialog").close();
   if (world.links.length && !confirm(text("resetAsk"))) return;
+  cancelInteraction();
   cancelPress();
   world.clear();
   const lower = world.add(catalog[2], colors[2], new T.Vector3(0, 0.6, 0));
@@ -521,19 +545,20 @@ $("#demo").onclick = () => {
   select(upper);
   camera.position.set(11, 12, 15);
   controls.target.copy(lower.position);
-  toast(text("demoHint"));
+  toast(mobile?.enabled ? mobile.text("demoHint") : text("demoHint"));
 };
 const ray = new T.Raycaster(),
   mouse = new T.Vector2();
 let drag: null | {
   id: number;
+  pointerId: number;
   startX: number;
   startY: number;
   moving: boolean;
   offset: T.Vector3;
   plane: T.Plane;
 } = null;
-function cast(e: MouseEvent) {
+function cast(e: { clientX: number; clientY: number }) {
   const r = canvas.getBoundingClientRect();
   mouse.set(
     ((e.clientX - r.left) / r.width) * 2 - 1,
@@ -541,7 +566,7 @@ function cast(e: MouseEvent) {
   );
   ray.setFromCamera(mouse, camera);
 }
-let seamPointer: { x: number; y: number; link: Connection } | null = null;
+let seamPointer: { pointerId: number; x: number; y: number; link: Connection } | null = null;
 let seamClick: Connection | null = null;
 function pickSeam() {
   updateSeams();
@@ -571,61 +596,32 @@ canvas.addEventListener("dblclick", (e) => {
   }
   seamClick = null;
 });
-canvas.addEventListener(
-  "pointerdown",
-  (e) => {
-    audio.unlock();
-    if (e.button !== 0 || pressing || turning) return;
-    cast(e);
-    const seam = pickSeam();
-    if (seam) {
-      seamPointer = { x: e.clientX, y: e.clientY, link: seam };
-      controls.enabled = false;
-      e.stopImmediatePropagation();
-      canvas.setPointerCapture(e.pointerId);
-      return;
-    }
-    seamClick = null;
-    const hit = ray.intersectObjects(
-      world.bricks.map((b) => b.mesh),
-      true,
-    )[0];
-    if (!hit) return;
-    let obj: T.Object3D = hit.object;
-    while (!obj.userData.brick && obj.parent) obj = obj.parent;
-    const b = obj.userData.brick as Brick;
-    select(b);
-    controls.enabled = false;
-    // Keep this plane fixed for the entire gesture: Q/E changes only Y.
-    const plane = new T.Plane(new T.Vector3(0, 1, 0), -b.position.y),
-      p = new T.Vector3();
-    ray.ray.intersectPlane(plane, p);
-    drag = {
-      id: b.id,
-      startX: e.clientX,
-      startY: e.clientY,
-      moving: false,
-      offset: b.position.clone().sub(p),
-      plane,
-    };
-    canvas.setPointerCapture(e.pointerId);
-  },
-  true,
-);
-canvas.addEventListener("pointermove", (e) => {
-  if (
-    seamPointer &&
-    Math.hypot(e.clientX - seamPointer.x, e.clientY - seamPointer.y) > 4
-  ) {
-    seamPointer = null;
-    seamClick = null;
-  }
-  if (!drag || turning) return;
+function beginDrag(e: TouchPoint): boolean {
+  if (pressing || turning) return false;
   cast(e);
-  if (
-    !drag.moving &&
-    Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 4
-  ) {
+  seamClick = null;
+  const hit = ray.intersectObjects(world.bricks.map((b) => b.mesh), true)[0];
+  if (!hit) return false;
+  let obj: T.Object3D = hit.object;
+  while (!obj.userData.brick && obj.parent) obj = obj.parent;
+  const b = obj.userData.brick as Brick;
+  const plane = new T.Plane(new T.Vector3(0, 1, 0), -b.position.y);
+  const p = ray.ray.intersectPlane(plane, new T.Vector3());
+  if (!p) return false;
+  select(b);
+  controls.enabled = false;
+  // Keep the horizontal plane fixed: height controls change only Y.
+  drag = {
+    id: b.id, pointerId: e.pointerId,
+    startX: e.clientX, startY: e.clientY, moving: false,
+    offset: b.position.clone().sub(p), plane,
+  };
+  return true;
+}
+function moveDrag(e: TouchPoint) {
+  if (!drag || drag.pointerId !== e.pointerId || turning || pressing) return;
+  cast(e);
+  if (!drag.moving && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 4) {
     world.grab(drag.id);
     const b = world.get(drag.id);
     world.transform(b.id, b.position.clone().add(new T.Vector3(0, 0.4, 0)));
@@ -640,27 +636,81 @@ canvas.addEventListener("pointermove", (e) => {
         steps = Math.max(1, Math.ceil(dist / 0.15)),
         origin = b.position.clone();
       for (let i = 1; i <= steps; i++)
-        if (!world.transform(b.id, origin.clone().lerp(target, i / steps)))
-          break;
+        if (!world.transform(b.id, origin.clone().lerp(target, i / steps))) break;
     }
   }
+}
+// Install capture handlers BEFORE the mouse handlers and keep touches out of OrbitControls.
+mobile = setupMobile({
+  canvas, camera, controls, language: () => language,
+  drag: {
+    start: (point) => { audio.unlock(); return beginDrag(point); },
+    move: (point) => { moveDrag(point); if (drag?.moving) mobile?.collapse(); },
+    end: endDrag,
+  },
+  cancel: cancelInteraction,
+  rotate,
+  translateBrick: translateSelected,
+  setLibraryOpen,
+});
+canvas.addEventListener("pointerdown", (e) => {
+  audio.unlock();
+  if (e.pointerType === "touch" || e.button !== 0 || pressing || turning || mobile?.cameraMode) return;
+  cast(e);
+  const seam = pickSeam();
+  if (seam) {
+    seamPointer = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, link: seam };
+    controls.enabled = false;
+    e.stopImmediatePropagation();
+    canvas.setPointerCapture(e.pointerId);
+    return;
+  }
+  if (beginDrag(e)) {
+    e.stopImmediatePropagation();
+    canvas.setPointerCapture(e.pointerId);
+  }
+}, true);
+canvas.addEventListener("pointermove", (e) => {
+  if (seamPointer?.pointerId === e.pointerId && Math.hypot(e.clientX - seamPointer.x, e.clientY - seamPointer.y) > 4) {
+    seamPointer = null;
+    seamClick = null;
+    endDrag();
+  }
+  moveDrag(e);
 });
 function endDrag() {
   drag = null;
   controls.enabled = true;
 }
-canvas.addEventListener("pointerup", () => {
-  seamClick = seamPointer?.link ?? null;
-  seamPointer = null;
-  endDrag();
+canvas.addEventListener("pointerup", (e) => {
+  if (seamPointer?.pointerId === e.pointerId) {
+    seamClick = seamPointer.link;
+    seamPointer = null;
+    endDrag();
+  } else if (drag?.pointerId === e.pointerId) endDrag();
 });
-canvas.addEventListener("pointercancel", () => {
+canvas.addEventListener("pointercancel", (e) => {
+  if (drag?.pointerId === e.pointerId || seamPointer?.pointerId === e.pointerId) {
+    seamPointer = null;
+    seamClick = null;
+    endDrag();
+  }
+});
+canvas.addEventListener("lostpointercapture", (e) => {
+  if (drag?.pointerId === e.pointerId || seamPointer?.pointerId === e.pointerId) {
+    seamPointer = null;
+    seamClick = null;
+    endDrag();
+  }
+});
+function cancelInteraction() {
+  mobile?.cancel();
   seamPointer = null;
   seamClick = null;
   endDrag();
-});
+}
 window.addEventListener("blur", () => {
-  endDrag();
+  cancelInteraction();
   cancelTurn();
   cancelPress();
 });
@@ -698,6 +748,7 @@ window.addEventListener("keyup", (e) => {
   if (e.code === "Space") cancelPress();
 });
 function resize() {
+  cancelInteraction();
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
@@ -806,7 +857,7 @@ function frame(now: number) {
         : pressing
           ? text("pressing")
           : candidate
-            ? text("ready")
+            ? mobile?.enabled ? mobile.text("ready") : text("ready")
             : ""
       : "";
     $("#alignment").classList.toggle("ready", !!candidate);
