@@ -59,13 +59,9 @@ Audio starts after a user gesture, in accordance with browser autoplay rules. Us
 
 ## Deploy to GitHub Pages
 
-The repository includes a GitHub Actions workflow at `.github/workflows/pages.yml`:
+Run `npm run build` to generate `dist/`. Publish the contents of that directory using your preferred GitHub Pages setup. No deployment workflow is bundled; publishing is managed by the repository owner.
 
-1. Push the project to the repository's `main` branch.
-2. In **Settings → Pages → Build and deployment**, select **GitHub Actions** as the source.
-3. Run **Deploy playground to GitHub Pages**, or push another commit to `main`.
-
-The workflow installs locked dependencies, runs the engine tests, builds `dist/`, and deploys it. Relative asset URLs work at a repository subpath such as `/lego-bricks/` and at a domain root. `dist/` can also be uploaded to any static web host. Opening `index.html` directly through `file://` is not supported.
+Relative asset URLs work at a repository subpath such as `/lego-bricks/` and at a domain root. `dist/` can also be uploaded to any static web host. Opening `index.html` directly through `file://` is not supported.
 
 ## Engine structure
 
