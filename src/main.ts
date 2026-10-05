@@ -1,3 +1,4 @@
+import { groundController, groundOptions, groundStyle } from "./scene/ground";
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
@@ -13,7 +14,7 @@ import "./style.css";
 let language: Language =
   localStorage.getItem("bricks-language") === "tr" ? "tr" : "en";
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><div id="cards"></div><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
+app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true">♫</button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><label class="ground-control"><span class="eyebrow" data-t="ground"></span><select id="ground"></select></label><div id="cards"></div><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div></aside><section id="selection" class="selection"><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
 const $ = <E extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<E>(s)!;
 const text = (key: keyof typeof messages.en) => messages[language][key];
@@ -77,6 +78,19 @@ grid.position.y = 0.003;
 (grid.material as T.Material).transparent = true;
 (grid.material as T.Material).opacity = 0.42;
 scene.add(grid);
+let currentGround = groundStyle(localStorage.getItem("bricks-ground"));
+const applyGround = groundController(
+  floor.material,
+  grid,
+  renderer.capabilities.getMaxAnisotropy(),
+);
+applyGround(currentGround);
+$("#ground").onchange = (event) => {
+  currentGround = groundStyle((event.target as HTMLSelectElement).value);
+  applyGround(currentGround);
+  localStorage.setItem("bricks-ground", currentGround);
+};
+
 const world = new BrickWorld(scene, (v) => audio.play(v));
 let selected: Brick | null = null,
   currentColor = colors[0],
@@ -228,9 +242,14 @@ function translate() {
   $("#help").title = text("help");
   $("#sound").title = text("sound");
   $("#view").title = text("view");
+  $("#ground").setAttribute("aria-label", text("ground"));
   $("#library-toggle").setAttribute("aria-expanded", String(panelOpen));
   $("#library").classList.toggle("closed", !panelOpen);
   $("#pause span").textContent = text(paused ? "paused" : "live");
+  $("#ground").innerHTML = groundOptions
+    .map((style) => `<option value="${style}">${text(style)}</option>`)
+    .join("");
+  $<HTMLSelectElement>("#ground").value = currentGround;
   renderCards();
   dirty = true;
 }

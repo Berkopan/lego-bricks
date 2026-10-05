@@ -755,3 +755,18 @@ dialog p {
   flex-basis: 100%;
   margin-left: 0;
 }
+
+.ground-control {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #d9ddd3;
+}
+.ground-control select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+}
