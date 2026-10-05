@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { JoystickState, stickVector, stickStep } from "../src/input/joystick.ts";
+import { JoystickState, keepsJoystickWhile, stickVector, stickStep } from "../src/input/joystick.ts";
 
 const zero = { x: 0, y: 0 };
 test("center and finger jitter do not move a brick", () => {
@@ -54,4 +54,12 @@ test("cancel resets movement and ignores orphaned events", () => {
   assert.deepEqual(state.vector, zero);
   assert.equal(state.down(2), true);
   assert.deepEqual(state.vector, zero);
+});
+
+test("height controls can run while the joystick remains active", () => {
+  assert.equal(keepsJoystickWhile("up"), true);
+  assert.equal(keepsJoystickWhile("down"), true);
+  assert.equal(keepsJoystickWhile("left"), false);
+  assert.equal(keepsJoystickWhile("rotate"), false);
+  assert.equal(keepsJoystickWhile(undefined), false);
 });

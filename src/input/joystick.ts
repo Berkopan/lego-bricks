@@ -3,6 +3,11 @@ export interface StickVector {
   y: number;
 }
 
+/** Height controls are orthogonal to planar steering and may run concurrently. */
+export function keepsJoystickWhile(action: string | undefined): boolean {
+  return action === "up" || action === "down";
+}
+
 /** Circular dead zone and radial clamping: diagonals must not move faster. */
 export function stickVector(dx: number, dy: number, radius: number): StickVector {
   if (![dx, dy, radius].every(Number.isFinite) || radius <= 0)
