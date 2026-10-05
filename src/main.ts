@@ -90,6 +90,7 @@ let pressing: null | {
   lower: number;
   origin: T.Vector3;
   target: T.Vector3;
+  fromRotation: T.Quaternion;
   rotation: T.Quaternion;
 } = null;
 let turning: null | {
@@ -367,6 +368,7 @@ function startPress() {
     lower: c.lower.id,
     origin: selected.position.clone(),
     target: c.fit.position.clone(),
+    fromRotation: selected.rotation.clone(),
     rotation: c.fit.rotation.clone(),
   };
 }
@@ -374,7 +376,7 @@ function cancelPress() {
   if (pressing) {
     const p = pressing;
     pressing = null;
-    world.transform(p.id, p.origin);
+    world.transform(p.id, p.origin, p.fromRotation);
     $("#press")?.style.setProperty("--progress", "0%");
   }
 }
@@ -719,8 +721,10 @@ function frame(now: number) {
     if (!b || !lower || !world.held.has(b.id)) {
       cancelPress();
     } else {
-      const target = p.origin.clone().lerp(p.target, t * t * (3 - 2 * t));
-      if (!world.transform(p.id, target, p.rotation)) {
+      const progress = t * t * (3 - 2 * t);
+      const target = p.origin.clone().lerp(p.target, progress);
+      const rotation = p.fromRotation.clone().slerp(p.rotation, progress);
+      if (!world.transform(p.id, target, rotation)) {
         cancelPress();
         toast(text("blocked"));
       } else {

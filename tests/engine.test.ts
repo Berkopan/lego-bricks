@@ -363,3 +363,95 @@ test("off-center selected member joins another assembly without losing the inter
   assert.ok(Math.abs(bottom.position.y - 3) < 1e-5);
   w.world.free();
 });
+
+test("bridge assembly aligns its overhang to a slightly rotated independent support", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  const foot = w.add(catalog[1], "#3e7b9b", new Vector3(-2, 0.9, 0));
+  const bridge = w.add(catalog[2], "#383c43", new Vector3(-1, 2.1, 0));
+  w.connect(bridge, foot, 4);
+  const q = new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), 0.08);
+  const support = w.add(catalog[1], "#df553e", new Vector3(0.27, 0.6, 0.1), q);
+  w.grab(foot.id);
+  assert.equal(
+    mating(bridge, support),
+    null,
+    "strict engagement must still reject misalignment",
+  );
+  const c = w.candidate(foot.id);
+  assert.equal(c?.upper.id, bridge.id);
+  assert.equal(c?.lower.id, support.id);
+  assert.equal(w.links.length, 1, "preview does not connect");
+  assert.ok(w.press(foot.id));
+  assert.equal(component(foot.id, w.links).size, 3);
+  assert.ok(mating(bridge, support, 0.06));
+  assert.ok(bridge.rotation.angleTo(support.rotation) < 0.001);
+  const relative = foot.position
+    .clone()
+    .sub(bridge.position)
+    .applyQuaternion(bridge.rotation.clone().invert());
+  assert.ok(relative.distanceTo(new Vector3(-1, -1.2, 0)) < 1e-5);
+  w.world.free();
+});
+
+test("five-brick bridge preview is non-mutating and joins from the small selected member", async () => {
+  const { readFileSync } = await import("node:fs");
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  w.restore(
+    JSON.parse(
+      readFileSync(
+        new URL("./fixtures/bridge-alignment.json", import.meta.url),
+        "utf8",
+      ),
+    ),
+  );
+  const selected = w.bricks[2],
+    overhang = w.bricks[3],
+    support = w.bricks[4];
+  w.grab(selected.id);
+  const before = w.serialize();
+  assert.equal(w.candidate(selected.id)?.upper.id, overhang.id);
+  assert.deepEqual(w.serialize(), before);
+  assert.ok(w.press(selected.id));
+  assert.equal(w.links.length, 4);
+  assert.equal(component(selected.id, w.links).size, 5);
+  assert.ok(mating(overhang, support, 0.06));
+  for (let i = 0; i < 240; i++) w.step();
+  assert.equal(w.links.length, 4);
+  assert.ok(w.bricks.every((b) => b.position.y > 0.5));
+  w.world.free();
+});
+
+test("alignment assistance rejects distant, sideways, and blocked approaches", async () => {
+  const w = new BrickWorld(new Scene(), () => {});
+  await w.init();
+  const support = w.add(catalog[1], "#df553e", new Vector3(0, 0.6, 0));
+  const top = w.add(catalog[1], "#383c43", new Vector3(0.49, 2.1, 0.49));
+  w.grab(top.id);
+  assert.equal(w.candidate(top.id), null, "no long-distance snapping");
+  assert.ok(
+    w.transform(
+      top.id,
+      new Vector3(0, 2.1, 0),
+      new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), 0.3),
+    ),
+  );
+  assert.equal(w.candidate(top.id), null, "large yaw remains invalid");
+  assert.ok(w.transform(top.id, new Vector3(0, 2.1, 0), new Quaternion()));
+  // A valid bridge cannot press onto a sunken support if its other foot
+  // would penetrate the floor. The current upper/foot connection is exact.
+  assert.ok(w.transform(top.id, new Vector3(1, 1.8, 0)));
+  support.body.setTranslation(new Vector3(0, 0.55, 0), true);
+  w.sync();
+  const foot = w.add(catalog[1], "#66846b", new Vector3(2, 0.6, 0));
+  assert.equal(mating(top, foot)?.count, 2);
+  w.connect(top, foot, 2);
+  w.grab(top.id);
+  const before = w.serialize();
+  assert.equal(w.candidate(top.id), null);
+  assert.equal(w.press(top.id), false);
+  assert.deepEqual(w.serialize(), before);
+  assert.equal(component(support.id, w.links).size, 1);
+  w.world.free();
+});
