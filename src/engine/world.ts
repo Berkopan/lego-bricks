@@ -81,6 +81,7 @@ export class BrickWorld {
   private impactTimes = new Map<string, number>();
   private quietUntil = new Map<number, number>();
   private groundChecked = new Set<number>();
+  private groundRestFrames = new Map<number, number>();
   private holdRevision = 0;
   private snapPreviews = new WeakMap<
     SnapCandidate,
@@ -295,13 +296,15 @@ export class BrickWorld {
     for (const b of [...this.bricks]) if (b.position.y < -30) this.remove(b.id);
   }
   /**
-   * Rapier may put a rotated compound body to sleep with a tiny residual
-   * penetration against the floor. The round brick makes this visible because
-   * its rendered rim is smoother than the convex pieces used by physics.
+   * Rapier can settle a rotated multi-collider body with a small residual floor
+   * penetration before its formal sleeping flag flips. The round brick makes
+   * this especially visible because the rendered rim is smoother than the
+   * convex pieces used by physics.
    *
-   * Enforce the visible floor only when a whole linked component has actually
-   * gone to sleep. This avoids fighting active simulation and measures the real
-   * rendered geometry exactly once per sleep transition.
+   * Wait for a whole linked component to stay effectively still for 30 physics
+   * steps, then measure the real rendered geometry once. If it crossed y=0,
+   * lift the complete component rigidly and put it to sleep. External contacts
+   * will wake it normally later.
    */
   private correctSleepingGroundPenetration() {
     const visited = new Set<number>();
@@ -314,14 +317,33 @@ export class BrickWorld {
       if (
         members.some((brick) => this.held.has(brick.id) || !brick.body.isDynamic())
       ) {
-        for (const id of ids) this.groundChecked.delete(id);
+        for (const id of ids) {
+          this.groundChecked.delete(id);
+          this.groundRestFrames.delete(id);
+        }
         continue;
       }
-      if (!members.every((brick) => brick.body.isSleeping())) {
-        for (const id of ids) this.groundChecked.delete(id);
+
+      const resting = members.every(
+        (brick) =>
+          new T.Vector3().copy(brick.body.linvel()).lengthSq() < 0.0004 &&
+          new T.Vector3().copy(brick.body.angvel()).lengthSq() < 0.0004,
+      );
+      if (!resting) {
+        for (const id of ids) {
+          this.groundChecked.delete(id);
+          this.groundRestFrames.delete(id);
+        }
         continue;
       }
       if (members.every((brick) => this.groundChecked.has(brick.id))) continue;
+
+      const restFrames =
+        Math.min(
+          ...members.map((brick) => this.groundRestFrames.get(brick.id) ?? 0),
+        ) + 1;
+      for (const id of ids) this.groundRestFrames.set(id, restFrames);
+      if (restFrames < 30) continue;
 
       const bottom = Math.min(
         ...members.map(
@@ -335,6 +357,8 @@ export class BrickWorld {
       for (const brick of members) {
         const p = brick.body.translation();
         brick.body.setTranslation({ x: p.x, y: p.y + lift, z: p.z }, false);
+        brick.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+        brick.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
         brick.body.sleep();
       }
       corrected = true;
@@ -353,6 +377,7 @@ export class BrickWorld {
     this.held = component(id, this.links);
     for (const i of this.held) {
       this.groundChecked.delete(i);
+      this.groundRestFrames.delete(i);
       const b = this.get(i);
       b.body.setBodyType(R.RigidBodyType.KinematicPositionBased, true);
       // Editing uses clearAt/sweptPoses for collision safety. Making the held
@@ -367,6 +392,7 @@ export class BrickWorld {
     this.holdRevision++;
     for (const i of this.held) {
       this.groundChecked.delete(i);
+      this.groundRestFrames.delete(i);
       const b = this.get(i);
       this.setBodySensors(b.body, false);
       b.body.setBodyType(R.RigidBodyType.Dynamic, true);
@@ -1121,6 +1147,7 @@ export class BrickWorld {
       this.world.removeImpulseJoint(l.joint, true);
     this.links = this.links.filter((l) => l.a !== id && l.b !== id);
     this.groundChecked.delete(id);
+    this.groundRestFrames.delete(id);
     this.world.removeRigidBody(b.body);
     this.scene.remove(b.mesh);
     b.mesh.traverse((o) => {
