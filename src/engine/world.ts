@@ -86,6 +86,7 @@ export class BrickWorld {
       members: Brick[];
       stationary: Brick;
       anchor: SnapPose;
+      stationaryMembers: { brick: Brick; pose: SnapPose }[];
       poses: TargetPoses;
     }
   >();
@@ -605,6 +606,15 @@ export class BrickWorld {
         c.stationary.position,
         c.stationary.rotation,
       ),
+      stationaryMembers: [...component(c.stationary.id, this.links)].map(
+        (member) => {
+          const brick = this.get(member);
+          return {
+            brick,
+            pose: snapshotPose(member, brick.position, brick.rotation),
+          };
+        },
+      ),
       poses: c.poses,
     });
     return preview;
@@ -623,7 +633,13 @@ export class BrickWorld {
       ) ||
       this.get(saved.stationary.id) !== saved.stationary ||
       !samePosition(saved.stationary.position, saved.anchor.position) ||
-      !sameRotation(saved.stationary.rotation, saved.anchor.rotation)
+      !sameRotation(saved.stationary.rotation, saved.anchor.rotation) ||
+      saved.stationaryMembers.some(
+        ({ brick, pose }) =>
+          this.get(brick.id) !== brick ||
+          !samePosition(brick.position, pose.position) ||
+          !sameRotation(brick.rotation, pose.rotation),
+      )
     )
       return false;
     const connected = component(id, this.links);
@@ -889,6 +905,15 @@ export class BrickWorld {
         stationary.id,
         stationary.position,
         stationary.rotation,
+      ),
+      stationaryMembers: [...component(stationary.id, this.links)].map(
+        (member) => {
+          const brick = this.get(member);
+          return {
+            brick,
+            pose: snapshotPose(member, brick.position, brick.rotation),
+          };
+        },
       ),
       poses: target.poses,
     });

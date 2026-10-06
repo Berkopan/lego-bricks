@@ -190,3 +190,180 @@ test("a lowering snap preview is rejected if its support moves before release", 
   assert.equal(world.held.size, 1);
   world.world.free();
 });
+
+
+test("lowering projection works from a held assembly onto a stationary assembly", async () => {
+  const world = await scene();
+
+  // Stationary assembly: a top 2x2 is attached to a lower 2x2.
+  const stationaryBase = world.add(
+    spec("2x2"),
+    "#df553e",
+    new Vector3(0, 0.6, 0),
+  );
+  const stationaryTop = world.add(
+    spec("2x2"),
+    "#df553e",
+    new Vector3(0, 1.8, 0),
+  );
+  world.connect(stationaryTop, stationaryBase, 4);
+
+  // Held assembly: its lower member should project onto stationaryTop.
+  const heldBottom = world.add(
+    spec("2x2"),
+    "#66846b",
+    new Vector3(0.04, 5, 0.04),
+  );
+  const heldTop = world.add(
+    spec("2x2"),
+    "#66846b",
+    new Vector3(0.04, 6.2, 0.04),
+  );
+  world.connect(heldTop, heldBottom, 4);
+  world.grab(heldTop.id);
+
+  const guide = world.loweringAlignment(heldTop.id);
+  assert.ok(guide, "assembly-to-assembly lowering alignment should be found");
+  assert.equal(guide.memberId, heldBottom.id);
+  assert.equal(guide.lowerId, stationaryTop.id);
+
+  const preview = world.loweringSnapCandidate(heldTop.id, guide);
+  assert.ok(preview, "Snap should preview the complete held assembly");
+  assert.equal(preview.poses.length, 2);
+  assert.equal(world.commitSnap(heldTop.id, preview), true);
+  assert.equal(world.held.size, 0);
+  assert.equal(
+    world.links.length,
+    3,
+    "the two pre-existing assemblies should be joined by one new connection",
+  );
+  world.world.free();
+});
+
+test("assembly projection finds a free area on a partly occupied stationary assembly", async () => {
+  const world = await scene();
+
+  // A 2x4 target with its left half occupied by another connected 2x2.
+  const stationaryDeck = world.add(
+    spec("2x4"),
+    "#df553e",
+    new Vector3(0, 0.6, 0),
+  );
+  const occupied = world.add(
+    spec("2x2"),
+    "#df553e",
+    new Vector3(-1, 1.8, 0),
+  );
+  world.connect(occupied, stationaryDeck, 4);
+
+  // Two connected held bricks are positioned above the free right half.
+  const heldBottom = world.add(
+    spec("2x2"),
+    "#66846b",
+    new Vector3(1.04, 5, 0.04),
+  );
+  const heldTop = world.add(
+    spec("2x2"),
+    "#66846b",
+    new Vector3(1.04, 6.2, 0.04),
+  );
+  world.connect(heldTop, heldBottom, 4);
+  world.grab(heldTop.id);
+
+  const guide = world.loweringAlignment(heldTop.id);
+  assert.ok(guide, "free studs on a stationary assembly should still project");
+  assert.equal(guide.memberId, heldBottom.id);
+  assert.equal(guide.lowerId, stationaryDeck.id);
+  const preview = world.loweringSnapCandidate(heldTop.id, guide);
+  assert.ok(preview);
+  assert.equal(world.commitSnap(heldTop.id, preview), true);
+  assert.equal(world.links.length, 3);
+  world.world.free();
+});
+
+
+test("a connected wide held assembly projects across two connected stationary supports", async () => {
+  const world = await scene();
+
+  // Stationary assembly: lower bridge connects two top supports at the same height.
+  const base = world.add(spec("2x4"), "#df553e", new Vector3(0, 0.6, 0));
+  const left = world.add(spec("2x2"), "#df553e", new Vector3(-1, 1.8, 0));
+  const right = world.add(spec("2x2"), "#df553e", new Vector3(1, 1.8, 0));
+  world.connect(left, base, 4);
+  world.connect(right, base, 4);
+
+  // Held assembly: a wide lower brick plus a connected brick above it.
+  const movingDeck = world.add(
+    spec("2x4"),
+    "#66846b",
+    new Vector3(0.04, 5, 0.04),
+  );
+  const movingTop = world.add(
+    spec("2x2"),
+    "#66846b",
+    new Vector3(0.04, 6.2, 0.04),
+  );
+  world.connect(movingTop, movingDeck, 4);
+  world.grab(movingTop.id);
+
+  const guide = world.loweringAlignment(movingTop.id);
+  assert.ok(
+    guide,
+    "a held assembly spanning multiple members of a stationary assembly should project",
+  );
+  const preview = world.loweringSnapCandidate(movingTop.id, guide);
+  assert.ok(preview);
+  assert.equal(preview.poses.length, 2);
+  assert.equal(world.commitSnap(movingTop.id, preview), true);
+  assert.equal(world.held.size, 0);
+  assert.equal(
+    world.links.length,
+    5,
+    "both final support contacts should join the two assemblies",
+  );
+  world.world.free();
+});
+
+test("a multi-foot held assembly projects onto a connected wide stationary deck", async () => {
+  const world = await scene();
+
+  const stationaryBase = world.add(
+    spec("2x4"),
+    "#df553e",
+    new Vector3(0, 0.6, 0),
+  );
+  const stationaryTop = world.add(
+    spec("2x4"),
+    "#df553e",
+    new Vector3(0, 1.8, 0),
+  );
+  world.connect(stationaryTop, stationaryBase, 8);
+
+  const leftFoot = world.add(
+    spec("2x2"),
+    "#66846b",
+    new Vector3(-0.96, 5, 0.04),
+  );
+  const rightFoot = world.add(
+    spec("2x2"),
+    "#66846b",
+    new Vector3(1.04, 5, 0.04),
+  );
+  const bridge = world.add(
+    spec("2x4"),
+    "#66846b",
+    new Vector3(0.04, 6.2, 0.04),
+  );
+  world.connect(bridge, leftFoot, 4);
+  world.connect(bridge, rightFoot, 4);
+  world.grab(bridge.id);
+
+  const guide = world.loweringAlignment(bridge.id);
+  assert.ok(guide, "all connected held members should participate in projection");
+  const preview = world.loweringSnapCandidate(bridge.id, guide);
+  assert.ok(preview);
+  assert.equal(preview.poses.length, 3);
+  assert.equal(world.commitSnap(bridge.id, preview), true);
+  assert.equal(world.links.length, 5);
+  world.world.free();
+});

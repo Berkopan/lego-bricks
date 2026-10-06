@@ -2,10 +2,17 @@ import * as T from "three";
 import type { Brick, LoweringAlignment } from "../engine/world";
 
 const CORNER_LIFT = 0.025;
+const CORNERS: [number, number][] = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+];
 
 /**
- * Four thin guide lines from the held member's lower corners to the exact pose
- * it would occupy after lowering onto the aligned studs.
+ * Draw the lowering projection for the complete held assembly. Every connected
+ * member contributes four thin corner guides to the exact pose it would occupy
+ * after the assembly is lowered onto the aligned studs.
  */
 export class AlignmentProjection {
   private readonly geometry = new T.BufferGeometry();
@@ -25,7 +32,7 @@ export class AlignmentProjection {
   constructor(scene: T.Scene) {
     this.geometry.setAttribute(
       "position",
-      new T.Float32BufferAttribute(new Float32Array(8 * 3), 3),
+      new T.Float32BufferAttribute(new Float32Array(0), 3),
     );
     this.lines.name = "alignment-projection";
     this.lines.visible = false;
@@ -38,35 +45,41 @@ export class AlignmentProjection {
     return this.lines.visible;
   }
 
-  show(root: Brick, member: Brick, guide: LoweringAlignment) {
-    if (this.disposed || guide.memberId !== member.id) return this.hide();
+  show(root: Brick, members: readonly Brick[], guide: LoweringAlignment) {
+    if (
+      this.disposed ||
+      !members.length ||
+      !members.some((member) => member.id === guide.memberId)
+    )
+      return this.hide();
+
     const shift = guide.position.clone().sub(root.position);
     shift.y = 0;
-    const targetCenter = member.position
-      .clone()
-      .add(shift)
-      .add(new T.Vector3(0, -guide.drop, 0));
-    const attribute = this.geometry.getAttribute(
+    const positions = new Float32Array(members.length * CORNERS.length * 2 * 3);
+    let cursor = 0;
+
+    for (const member of members) {
+      const targetCenter = member.position
+        .clone()
+        .add(shift)
+        .add(new T.Vector3(0, -guide.drop, 0));
+      for (const [x, z] of CORNERS) {
+        const local = new T.Vector3(
+          (x * member.spec.cols) / 2,
+          -member.spec.height / 2 + CORNER_LIFT,
+          (z * member.spec.rows) / 2,
+        ).applyQuaternion(member.rotation);
+        const start = local.clone().add(member.position);
+        const end = local.clone().add(targetCenter);
+        for (const value of [start.x, start.y, start.z, end.x, end.y, end.z])
+          positions[cursor++] = value;
+      }
+    }
+
+    this.geometry.setAttribute(
       "position",
-    ) as T.BufferAttribute;
-    const corners: [number, number][] = [
-      [-1, -1],
-      [1, -1],
-      [1, 1],
-      [-1, 1],
-    ];
-    corners.forEach(([x, z], index) => {
-      const local = new T.Vector3(
-        (x * member.spec.cols) / 2,
-        -member.spec.height / 2 + CORNER_LIFT,
-        (z * member.spec.rows) / 2,
-      ).applyQuaternion(member.rotation);
-      const start = local.clone().add(member.position);
-      const end = local.clone().add(targetCenter);
-      attribute.setXYZ(index * 2, start.x, start.y, start.z);
-      attribute.setXYZ(index * 2 + 1, end.x, end.y, end.z);
-    });
-    attribute.needsUpdate = true;
+      new T.Float32BufferAttribute(positions, 3),
+    );
     this.geometry.computeBoundingSphere();
     this.lines.computeLineDistances();
     this.lines.visible = true;

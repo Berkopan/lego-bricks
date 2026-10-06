@@ -23,6 +23,16 @@ function brick(
   };
 }
 
+function points(scene: T.Scene) {
+  const lines = scene.getObjectByName(
+    "alignment-projection",
+  ) as T.LineSegments<T.BufferGeometry, T.LineDashedMaterial>;
+  return {
+    lines,
+    attribute: lines.geometry.getAttribute("position") as T.BufferAttribute,
+  };
+}
+
 test("alignment projection draws four corner lines to the exact lowering target", () => {
   const scene = new T.Scene();
   const projection = new AlignmentProjection(scene);
@@ -42,14 +52,9 @@ test("alignment projection draws four corner lines to the exact lowering target"
     drop: 3.2,
   };
 
-  projection.show(root, member, guide);
+  projection.show(root, [member], guide);
   assert.equal(projection.visible, true);
-  const lines = scene.getObjectByName(
-    "alignment-projection",
-  ) as T.LineSegments<T.BufferGeometry, T.LineDashedMaterial>;
-  const attribute = lines.geometry.getAttribute(
-    "position",
-  ) as T.BufferAttribute;
+  const { lines, attribute } = points(scene);
   assert.equal(attribute.count, 8);
   assert.equal(lines.material.transparent, true);
   assert.equal(lines.material.depthWrite, false);
@@ -83,4 +88,37 @@ test("alignment projection draws four corner lines to the exact lowering target"
   assert.equal(projection.visible, false);
   projection.dispose();
   assert.equal(scene.getObjectByName("alignment-projection"), undefined);
+});
+
+test("a connected held assembly projects every member, not only the mating brick", () => {
+  const scene = new T.Scene();
+  const projection = new AlignmentProjection(scene);
+  const bottom = brick(1, new T.Vector3(0.04, 5, 0.04));
+  const top = brick(2, new T.Vector3(0.04, 6.2, 0.04));
+  const guide: LoweringAlignment = {
+    position: new T.Vector3(0, 6.2, 0),
+    memberId: bottom.id,
+    lowerId: 9,
+    drop: 3.2,
+  };
+
+  projection.show(top, [top, bottom], guide);
+  const { attribute } = points(scene);
+  assert.equal(
+    attribute.count,
+    16,
+    "two connected bricks should contribute eight projection lines",
+  );
+
+  for (let memberIndex = 0; memberIndex < 2; memberIndex++) {
+    const member = [top, bottom][memberIndex];
+    const firstStart = new T.Vector3().fromBufferAttribute(
+      attribute,
+      memberIndex * 8,
+    );
+    assert.ok(
+      Math.abs(firstStart.y - (member.position.y - member.spec.height / 2 + 0.025)) <
+        1e-6,
+    );
+  }
 });
