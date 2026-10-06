@@ -11,6 +11,13 @@
   --footer-height: calc(60px + var(--safe-bottom));
   --hud-bottom: calc(var(--footer-height) + 12px);
 }
+html.touch-layout,
+.touch-layout body {
+  /* Disable the browser's double-tap-to-zoom gesture across the mobile UI
+     without disabling pinch zoom. Canvas/HUD surfaces keep their stricter
+     touch-action:none rules below for app-owned gestures. */
+  touch-action: manipulation;
+}
 .touch-layout body { overscroll-behavior: none; }
 .touch-layout .touch-only { display: block; }
 .touch-layout button { min-height: 44px; touch-action: manipulation; }
