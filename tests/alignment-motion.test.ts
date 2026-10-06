@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Vector3 } from "three";
+import { Scene, Vector3 } from "three";
 import {
   planarResistance,
   moveWithAlignment,
 } from "../src/engine/alignment-motion";
-import type { BrickWorld } from "../src/engine/world";
+import { catalog } from "../src/engine/catalog";
+import { BrickWorld } from "../src/engine/world";
 
 test("horizontal alignment creates a strong detent while leaving height and free movement exact", () => {
   const position = new Vector3(0, 6, 0),
@@ -86,4 +87,103 @@ test("absolute-pointer resistance has no stationary-pointer creep and can be ove
     "continued movement breaks out of the alignment detent",
   );
   assert.equal(brick.position.y, 6);
+});
+
+
+test("blocked planar movement auto-lifts only as much as needed to clear the obstacle", () => {
+  const brick = { position: new Vector3(0, 6, 0) };
+  const world = {
+    get: () => brick,
+    loweringAlignment: () => null,
+    transform: (_id: number, p: Vector3) => {
+      // Horizontal motion is blocked below y=6.8, while vertical lifting itself
+      // remains clear. This models rubbing against the side of another brick.
+      if (Math.abs(p.x) > 0.05 && p.y < 6.8 - 1e-9) return false;
+      brick.position.copy(p);
+      return true;
+    },
+  } as unknown as BrickWorld;
+
+  const result = moveWithAlignment(world, 1, new Vector3(0.12, 6, 0));
+  assert.equal(result.blocked, false);
+  assert.equal(result.lifted, true);
+  assert.ok(brick.position.x > 0.05);
+  assert.ok(brick.position.y >= 6.8 - 1e-9);
+  assert.ok(brick.position.y < 7, "lift remains close to the minimum clearance");
+});
+
+test("free planar movement never changes height", () => {
+  const brick = { position: new Vector3(0, 6, 0) };
+  const world = {
+    get: () => brick,
+    loweringAlignment: () => null,
+    transform: (_id: number, p: Vector3) => {
+      brick.position.copy(p);
+      return true;
+    },
+  } as unknown as BrickWorld;
+
+  const result = moveWithAlignment(world, 1, new Vector3(0.3, 6, 0));
+  assert.equal(result.blocked, false);
+  assert.equal(result.lifted, false);
+  assert.equal(brick.position.y, 6);
+});
+
+
+test("real collision geometry auto-lifts a dragged brick over a side obstacle", async () => {
+  const createScene = async () => {
+    const world = new BrickWorld(new Scene(), () => {});
+    await world.init();
+    world.add(catalog[1], "#3e7b9b", new Vector3(0, 0.6, 0));
+    const held = world.add(
+      catalog[1],
+      "#df553e",
+      new Vector3(-2.1, 0.6, 0),
+    );
+    world.grab(held.id);
+    return { world, held };
+  };
+
+  const direct = await createScene();
+  assert.equal(
+    direct.world.transform(direct.held.id, new Vector3(-1.97, 0.6, 0)),
+    true,
+    "a free approach step stays at the original height",
+  );
+  assert.equal(
+    direct.world.transform(direct.held.id, new Vector3(-1.82, 0.6, 0)),
+    false,
+    "the same-height side contact is blocked",
+  );
+  assert.equal(
+    direct.world.transform(direct.held.id, new Vector3(-1.97, 2, 0)),
+    true,
+    "vertical clearance is available beside the obstacle",
+  );
+  assert.equal(
+    direct.world.transform(direct.held.id, new Vector3(-1.82, 2, 0)),
+    true,
+    "the blocked horizontal step clears after lifting",
+  );
+  direct.world.world.free();
+
+  const assisted = await createScene();
+  const result = moveWithAlignment(
+    assisted.world,
+    assisted.held.id,
+    new Vector3(-1.7, 0.6, 0),
+  );
+
+  assert.equal(
+    result.blocked,
+    false,
+    `auto-lift should clear the side contact; position=${assisted.held.position.toArray().join(",")}`,
+  );
+  assert.equal(result.lifted, true);
+  assert.ok(assisted.held.position.y > 1.6, "brick climbs above the obstacle");
+  assert.ok(
+    assisted.held.position.x > -1.9,
+    "horizontal drag keeps progressing",
+  );
+  assisted.world.world.free();
 });

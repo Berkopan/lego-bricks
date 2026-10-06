@@ -167,8 +167,16 @@ export async function drag(page: Page, dx = 10, dy = 0) {
   await page.mouse.down();
   await page.mouse.move(point.x + dx, point.y + dy, { steps: 3 });
   await expect
-    .poll(async () => (await state(page)).position[1])
-    .toBeGreaterThan(before.position[1] + 0.3);
+    .poll(async () => {
+      const current = await state(page);
+      return Math.hypot(
+        current.position[0] - before.position[0],
+        current.position[2] - before.position[2],
+      );
+    })
+    .toBeGreaterThan(0.001);
+  const moved = await state(page);
+  expect(moved.position[1]).toBeCloseTo(before.position[1], 5);
   await frames(page);
   return point;
 }

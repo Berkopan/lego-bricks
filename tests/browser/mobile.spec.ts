@@ -84,8 +84,16 @@ async function dragTouch(page: Page, fingers: Fingers) {
   await fingers.down(1, point);
   await fingers.move(1, { x: point.x + 12, y: point.y });
   await expect
-    .poll(async () => (await state(page)).position[1])
-    .toBeGreaterThan(before.position[1] + 0.3);
+    .poll(async () => {
+      const current = await state(page);
+      return Math.hypot(
+        current.position[0] - before.position[0],
+        current.position[2] - before.position[2],
+      );
+    })
+    .toBeGreaterThan(0.001);
+  const moved = await state(page);
+  expect(moved.position[1]).toBeCloseTo(before.position[1], 5);
   await frames(page);
   return { x: point.x + 12, y: point.y };
 }
