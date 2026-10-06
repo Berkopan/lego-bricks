@@ -40,6 +40,8 @@ export class SnapHologram {
     transparent: true,
     opacity: 0.45,
     depthWrite: false,
+    // The held brick must not hide its own target when viewed from above.
+    depthTest: false,
     toneMapped: false,
   });
   private disposed = false;

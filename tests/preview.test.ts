@@ -154,7 +154,16 @@ test("hologram shows the complete saved assembly pose using the actual brick geo
       assert.equal(mesh.receiveShadow, false);
       assert.equal(mesh.userData.brick, undefined);
     });
-    assert.equal(edges(ghost).length, originalMeshes.length);
+    const ghostEdges = edges(ghost);
+    assert.equal(ghostEdges.length, originalMeshes.length);
+    for (const edge of ghostEdges) {
+      assert.equal(
+        edge.material.depthTest,
+        false,
+        "the held brick must not occlude the snap silhouette from above",
+      );
+      assert.equal(edge.material.depthWrite, false);
+    }
     assert.ok(member.position.equals(livePositions[index]));
     assert.equal(member.mesh.userData.brick, member);
   }

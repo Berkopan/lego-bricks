@@ -562,7 +562,10 @@ function acceptSnap() {
     return false;
   const preview = snapPreview;
   clearSnapPreview();
-  if (!world.commitSnap(selected.id, preview)) return false;
+  if (!world.commitSnap(selected.id, preview)) {
+    toast(text("snapChanged"));
+    return false;
+  }
   audio.unlock();
   audio.play(0.8, false, true);
   toast(text("connected"));
