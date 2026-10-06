@@ -1,19 +1,50 @@
 import { Vector3 } from "three";
-import type { BrickWorld } from "./world";
+import type { BrickWorld, LoweringAlignment } from "./world";
 
-/** A light, finite drag over a usable connector alignment. Height stays independent. */
+const INFLUENCE_RADIUS = 0.24;
+const CENTER_FACTOR = 0.1;
+const CAPTURE_RADIUS = 0.035;
+
+/**
+ * A noticeable but breakable planar detent around a usable connector alignment.
+ * Height stays exact. Crossing close to the target lands on its X/Z center,
+ * then leaving that center is strongly damped until the user keeps pushing.
+ */
 export function planarResistance(
   position: Vector3,
   delta: Vector3,
   alignment: Vector3 | null,
 ) {
   if (!alignment) return delta.clone();
-  const distance = Math.hypot(
-    position.x - alignment.x,
-    position.z - alignment.z,
+  const toAlignment = new Vector3(
+    alignment.x - position.x,
+    0,
+    alignment.z - position.z,
   );
-  const influence = Math.max(0, 1 - distance / 0.18);
-  const factor = 1 - 0.55 * influence;
+  const distance = toAlignment.length();
+  if (distance > INFLUENCE_RADIUS) return delta.clone();
+
+  const planar = new Vector3(delta.x, 0, delta.z);
+  const planarLengthSq = planar.lengthSq();
+  if (planarLengthSq < 1e-12)
+    return new Vector3(delta.x, delta.y, delta.z);
+
+  // Make the alignment feel like a physical notch instead of only slowing
+  // motion: if this input crosses very close to the center, stop on it.
+  const along = toAlignment.dot(planar) / planarLengthSq;
+  if (along > 0 && along <= 1) {
+    const closest = toAlignment
+      .clone()
+      .addScaledVector(planar, -along)
+      .length();
+    if (closest <= CAPTURE_RADIUS)
+      return new Vector3(toAlignment.x, delta.y, toAlignment.z);
+  }
+
+  const influence = Math.max(0, 1 - distance / INFLUENCE_RADIUS);
+  const eased = influence * influence * (3 - 2 * influence);
+  let factor = 1 - (1 - CENTER_FACTOR) * eased;
+  if (distance <= 0.06) factor = Math.min(factor, CENTER_FACTOR);
   return new Vector3(delta.x * factor, delta.y, delta.z * factor);
 }
 
@@ -31,7 +62,6 @@ export function moveWithAlignment(
   const steps = Math.max(1, Math.ceil(origin.distanceTo(target) / 0.15));
   const offset = new Vector3();
   let blocked = false;
-  let aligned = false;
   for (let i = 1; i <= steps; i++) {
     const desired = origin
       .clone()
@@ -51,11 +81,12 @@ export function moveWithAlignment(
       break;
     }
     offset.add(resisted.sub(delta));
-    aligned ||= !!alignment;
   }
+  const alignment: LoweringAlignment | null = world.loweringAlignment(id);
   return {
     blocked,
-    aligned,
+    aligned: !!alignment,
+    alignment,
     offset,
     moved: brick.position.distanceToSquared(origin) > 1e-12,
   };
