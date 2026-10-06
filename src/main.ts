@@ -562,7 +562,11 @@ function setAlignmentGuide(guide: LoweringAlignment | null) {
     projection.hide();
     return;
   }
-  projection.show(selected, world.get(guide.memberId), guide);
+  projection.show(
+    selected,
+    [...world.held].map((id) => world.get(id)),
+    guide,
+  );
   alignmentHintUntil = performance.now() + 400;
 }
 function refreshAlignmentGuide() {
