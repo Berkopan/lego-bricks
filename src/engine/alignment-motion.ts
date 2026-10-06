@@ -6,6 +6,7 @@ const CENTER_FACTOR = 0.1;
 const CAPTURE_RADIUS = 0.035;
 const AUTO_LIFT_STEP = 0.2;
 const AUTO_LIFT_MAX_PER_MOVE = 2.4;
+const PLANAR_HEIGHT_EPSILON = 1e-5;
 
 /**
  * A noticeable but breakable planar detent around a usable connector alignment.
@@ -63,7 +64,8 @@ export function moveWithAlignment(
   const origin = brick.position.clone();
   const steps = Math.max(1, Math.ceil(origin.distanceTo(target) / 0.15));
   const offset = new Vector3();
-  const planarOnly = Math.abs(target.y - origin.y) < 1e-8;
+  const planarOnly =
+    Math.abs(target.y - origin.y) < PLANAR_HEIGHT_EPSILON;
   let blocked = false;
   let lifted = false;
   for (let i = 1; i <= steps; i++) {
