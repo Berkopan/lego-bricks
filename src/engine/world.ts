@@ -20,7 +20,7 @@ function compoundSolidCollider(parts: Solid[]) {
     children.map((child) => child.shape),
     children.map((child) => child.translation),
     children.map((child) => child.rotation),
-    R.CompoundFlags.FIX_INTERNAL_EDGES,
+    1, // CompoundFlags.FIX_INTERNAL_EDGES
   );
 }
 export interface Brick extends Pose {
