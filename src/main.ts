@@ -1,5 +1,6 @@
 import { partPreviews } from "./scene/part-preview";
 import { SnapHologram } from "./scene/snap-preview";
+import { AlignmentProjection } from "./scene/alignment-projection";
 import { groundController, groundOptions, groundStyle } from "./scene/ground";
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -9,6 +10,7 @@ import {
   BrickWorld,
   type Brick,
   type Connection,
+  type LoweringAlignment,
   type SnapCandidate,
 } from "./engine/world";
 import { rotationAt, TURN_DURATION_MS } from "./engine/rotation";
@@ -106,10 +108,12 @@ $("#ground").onchange = (event) => {
 
 const world = new BrickWorld(scene, (v) => audio.play(v));
 const hologram = new SnapHologram(scene);
+const projection = new AlignmentProjection(scene);
 const movement = new MovementSession();
 const heightKeys = new Set<string>();
 let snapEnabled = false;
 let snapPreview: SnapCandidate | null = null;
+let alignmentGuide: LoweringAlignment | null = null;
 let alignmentHintUntil = 0;
 let selected: Brick | null = null,
   currentColor = colors[0],
@@ -150,6 +154,7 @@ function cancelTurn() {
 }
 function beginTurn(to: T.Quaternion, label: string) {
   if (!selected || turning || pressing) return;
+  setAlignmentGuide(null);
   clearSnapPreview();
   if (!world.held.has(selected.id)) world.grab(selected.id);
   const from = selected.rotation.clone();
@@ -335,6 +340,7 @@ function select(b: Brick | null) {
   }
   selected = b;
   if (b && mobile?.enabled) setLibraryOpen(false);
+  refreshAlignmentGuide();
   dirty = true;
 }
 function renderSelection() {
@@ -358,6 +364,7 @@ function renderSelection() {
     } else {
       cancelInteraction();
       world.grab(b.id);
+      refreshAlignmentGuide();
     }
     dirty = true;
   };
@@ -417,10 +424,14 @@ function translateSelected(delta: T.Vector3) {
     const result = moveWithAlignment(world, selected.id, target);
     if (result.blocked) toast(text("blocked"));
     if (result.moved) movement.edit();
-    if (result.aligned) alignmentHintUntil = performance.now() + 250;
+    setAlignmentGuide(result.alignment);
   } else if (!world.transform(selected.id, target)) {
     toast(text("blocked"));
-  } else if (delta.lengthSq() > 1e-12) movement.edit();
+    setAlignmentGuide(null);
+  } else {
+    if (delta.lengthSq() > 1e-12) movement.edit();
+    refreshAlignmentGuide();
+  }
   // Position/candidate rendering happens every frame; don't replace focused controls.
   if (!wasHeld) dirty = true;
 }
@@ -459,6 +470,7 @@ function startPress() {
     toast(text("notReady"));
     return;
   }
+  setAlignmentGuide(null);
   clearSnapPreview();
   audio.unlock();
   pressing = {
@@ -538,6 +550,32 @@ function clearSnapPreview() {
   snapPreview = null;
   hologram.hide();
 }
+function setAlignmentGuide(guide: LoweringAlignment | null) {
+  alignmentGuide = guide;
+  if (
+    !guide ||
+    !selected ||
+    !world.held.has(selected.id) ||
+    turning ||
+    pressing
+  ) {
+    projection.hide();
+    return;
+  }
+  projection.show(selected, world.get(guide.memberId), guide);
+  alignmentHintUntil = performance.now() + 400;
+}
+function refreshAlignmentGuide() {
+  setAlignmentGuide(
+    selected &&
+      world.held.has(selected.id) &&
+      !turning &&
+      !pressing &&
+      !mobile?.cameraMode
+      ? world.loweringAlignment(selected.id)
+      : null,
+  );
+}
 function renderSnapButton() {
   const button = $("#snap-toggle");
   button.setAttribute("aria-pressed", String(snapEnabled));
@@ -561,6 +599,7 @@ function acceptSnap() {
   )
     return false;
   const preview = snapPreview;
+  setAlignmentGuide(null);
   clearSnapPreview();
   if (!world.commitSnap(selected.id, preview)) {
     toast(text("snapChanged"));
@@ -746,7 +785,7 @@ function moveDrag(e: TouchPoint) {
       drag.offset.x += result.offset.x;
       drag.offset.z += result.offset.z;
       if (result.moved) movement.edit();
-      if (result.aligned) alignmentHintUntil = performance.now() + 250;
+      setAlignmentGuide(result.alignment);
     }
   }
 }
@@ -855,6 +894,7 @@ function cancelInteraction() {
   movement.cancel();
   heightKeys.clear();
   clearSnapPreview();
+  setAlignmentGuide(null);
   alignmentHintUntil = 0;
   mobile?.cancel();
   seamPointer = null;
@@ -1037,7 +1077,7 @@ function frame(now: number) {
               ? mobile?.enabled
                 ? mobile.text("ready")
                 : text("ready")
-              : now < alignmentHintUntil
+              : alignmentGuide || now < alignmentHintUntil
                 ? text("loweringAligned")
                 : ""
       : "";
@@ -1068,6 +1108,7 @@ function frame(now: number) {
   } else {
     $("#alignment").textContent = "";
     $("#alignment").classList.remove("snap-ready");
+    setAlignmentGuide(null);
     clearSnapPreview();
     ghost.visible = false;
   }

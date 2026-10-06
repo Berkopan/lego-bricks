@@ -107,6 +107,8 @@ export async function state(page: Page) {
     const lower = window.testLower;
     const ghost = scene.getObjectByName("snap-preview");
     const visible = !!ghost?.visible;
+    const projection = scene.getObjectByName("alignment-projection") as any;
+    const projectionAttribute = projection?.geometry?.getAttribute("position");
     const target = visible
       ? ghost?.getObjectByName(`snap-preview-brick-${upper.id}`)
       : undefined;
@@ -129,6 +131,14 @@ export async function state(page: Page) {
           }))
         : [],
       label: document.querySelector("#alignment")?.textContent ?? "",
+      projection: !!projection?.visible,
+      projectionPoints: projection?.visible && projectionAttribute
+        ? Array.from({ length: projectionAttribute.count }, (_, index) => [
+            projectionAttribute.getX(index),
+            projectionAttribute.getY(index),
+            projectionAttribute.getZ(index),
+          ])
+        : [],
     };
   });
 }
