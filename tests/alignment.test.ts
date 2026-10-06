@@ -91,7 +91,7 @@ test("guides reject yaw correction, side and underside approaches, and distant p
   );
   assert.equal(world.loweringAlignment(held.id), null);
   assert.ok(
-    world.transform(held.id, new Vector3(0.7, 5, 0.7), new Quaternion()),
+    world.transform(held.id, new Vector3(1.7, 5, 1.7), new Quaternion()),
   );
   assert.equal(world.loweringAlignment(held.id), null);
   world.clear();
