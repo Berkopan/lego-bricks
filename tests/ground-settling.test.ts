@@ -33,9 +33,18 @@ test("fallen rendered parts settle on or above the visible ground plane", async 
 
   const diagnostics = bricks.map((brick, index) => {
     const bounds = new Box3().setFromObject(brick.mesh);
+    const childMins = brick.mesh.children
+      .map((child, childIndex) => ({
+        childIndex,
+        minY: new Box3().setFromObject(child).min.y,
+      }))
+      .filter(({ minY }) => minY < -0.003);
     return {
       name: cases[index].name,
       minY: bounds.min.y,
+      position: brick.position.toArray(),
+      rotation: brick.rotation.toArray(),
+      childMins,
       speed: new Vector3().copy(brick.body.linvel()).length(),
       spin: new Vector3().copy(brick.body.angvel()).length(),
     };
