@@ -19,7 +19,7 @@ export default defineConfig({
   projects: [
     {
       name: "desktop",
-      testMatch: "**/snap.spec.ts",
+      testMatch: ["**/snap.spec.ts", "**/alignment.spec.ts"],
       use: { viewport: { width: 1280, height: 900 } },
     },
     {
