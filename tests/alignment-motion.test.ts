@@ -87,3 +87,43 @@ test("absolute-pointer resistance has no stationary-pointer creep and can be ove
   );
   assert.equal(brick.position.y, 6);
 });
+
+
+test("blocked planar movement auto-lifts only as much as needed to clear the obstacle", () => {
+  const brick = { position: new Vector3(0, 6, 0) };
+  const world = {
+    get: () => brick,
+    loweringAlignment: () => null,
+    transform: (_id: number, p: Vector3) => {
+      // Horizontal motion is blocked below y=6.8, while vertical lifting itself
+      // remains clear. This models rubbing against the side of another brick.
+      if (Math.abs(p.x) > 0.05 && p.y < 6.8 - 1e-9) return false;
+      brick.position.copy(p);
+      return true;
+    },
+  } as unknown as BrickWorld;
+
+  const result = moveWithAlignment(world, 1, new Vector3(0.12, 6, 0));
+  assert.equal(result.blocked, false);
+  assert.equal(result.lifted, true);
+  assert.ok(brick.position.x > 0.05);
+  assert.ok(brick.position.y >= 6.8 - 1e-9);
+  assert.ok(brick.position.y < 7, "lift remains close to the minimum clearance");
+});
+
+test("free planar movement never changes height", () => {
+  const brick = { position: new Vector3(0, 6, 0) };
+  const world = {
+    get: () => brick,
+    loweringAlignment: () => null,
+    transform: (_id: number, p: Vector3) => {
+      brick.position.copy(p);
+      return true;
+    },
+  } as unknown as BrickWorld;
+
+  const result = moveWithAlignment(world, 1, new Vector3(0.3, 6, 0));
+  assert.equal(result.blocked, false);
+  assert.equal(result.lifted, false);
+  assert.equal(brick.position.y, 6);
+});

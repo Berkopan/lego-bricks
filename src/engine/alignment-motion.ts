@@ -4,6 +4,8 @@ import type { BrickWorld, LoweringAlignment } from "./world";
 const INFLUENCE_RADIUS = 0.24;
 const CENTER_FACTOR = 0.1;
 const CAPTURE_RADIUS = 0.035;
+const AUTO_LIFT_STEP = 0.2;
+const AUTO_LIFT_MAX_PER_MOVE = 2.4;
 
 /**
  * A noticeable but breakable planar detent around a usable connector alignment.
@@ -61,12 +63,17 @@ export function moveWithAlignment(
   const origin = brick.position.clone();
   const steps = Math.max(1, Math.ceil(origin.distanceTo(target) / 0.15));
   const offset = new Vector3();
+  const planarOnly = Math.abs(target.y - origin.y) < 1e-8;
   let blocked = false;
+  let lifted = false;
   for (let i = 1; i <= steps; i++) {
     const desired = origin
       .clone()
       .lerp(target, i / steps)
       .add(offset);
+    // Once collision avoidance has raised the held assembly, pointer/joystick
+    // motion stays on that new plane instead of trying to descend on each step.
+    if (planarOnly) desired.y = brick.position.y;
     const delta = desired.clone().sub(brick.position);
     const alignment =
       Math.hypot(delta.x, delta.z) > 1e-8 ? world.loweringAlignment(id) : null;
@@ -77,8 +84,36 @@ export function moveWithAlignment(
     );
     const next = brick.position.clone().add(resisted);
     if (!world.transform(id, next)) {
-      blocked = true;
-      break;
+      let cleared = false;
+      if (
+        planarOnly &&
+        Math.hypot(resisted.x, resisted.z) > 1e-8
+      ) {
+        // A planar drag that runs into another brick climbs in small increments
+        // until the same horizontal move clears. This replaces the old eager
+        // lift-on-drag-start behavior with collision-driven assistance.
+        for (
+          let rise = AUTO_LIFT_STEP;
+          rise <= AUTO_LIFT_MAX_PER_MOVE + 1e-8;
+          rise += AUTO_LIFT_STEP
+        ) {
+          const raised = brick.position
+            .clone()
+            .add(new Vector3(0, AUTO_LIFT_STEP, 0));
+          if (!world.transform(id, raised)) break;
+          lifted = true;
+          const liftedNext = next.clone();
+          liftedNext.y = brick.position.y;
+          if (world.transform(id, liftedNext)) {
+            cleared = true;
+            break;
+          }
+        }
+      }
+      if (!cleared) {
+        blocked = true;
+        break;
+      }
     }
     offset.add(resisted.sub(delta));
   }
@@ -88,6 +123,7 @@ export function moveWithAlignment(
     aligned: !!alignment,
     alignment,
     offset,
+    lifted,
     moved: brick.position.distanceToSquared(origin) > 1e-12,
   };
 }

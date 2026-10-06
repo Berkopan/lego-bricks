@@ -783,9 +783,8 @@ function moveDrag(e: TouchPoint) {
     Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 4
   ) {
     world.grab(drag.id);
-    const b = world.get(drag.id);
-    if (world.transform(b.id, b.position.clone().add(new T.Vector3(0, 0.4, 0))))
-      movement.edit();
+    // Picking up a brick must not change its height. Collision-driven lifting
+    // happens only if the subsequent planar movement actually hits an obstacle.
     drag.moving = true;
     dirty = true;
   }
