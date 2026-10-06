@@ -14,15 +14,6 @@ function solidCollider(s: Solid) {
       ).setTranslation(...(s.center as [number, number, number]))
     : R.ColliderDesc.convexHull(new Float32Array(s.vertices))!;
 }
-function compoundSolidCollider(parts: Solid[]) {
-  const children = parts.map(solidCollider);
-  return R.ColliderDesc.compound(
-    children.map((child) => child.shape),
-    children.map((child) => child.translation),
-    children.map((child) => child.rotation),
-    1, // CompoundFlags.FIX_INTERNAL_EDGES
-  );
-}
 export interface Brick extends Pose {
   body: R.RigidBody;
   mesh: T.Group;
@@ -198,14 +189,28 @@ export class BrickWorld {
         .setAngularDamping(0.35),
     );
     const h = spec.height;
-    this.world.createCollider(
-      compoundSolidCollider(solids(spec))
-        .setFriction(0.55)
-        .setRestitution(0.08)
-        .setDensity(0.65)
-        .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS),
-      body,
-    );
+    const bodySolids = solids(spec, spec.shape === "round" ? 24 : 12);
+    for (const [index, solid] of bodySolids.entries()) {
+      // The final round solid is the 0.16-high top rim. Use Rapier's analytic
+      // cylinder for it so a tilted round brick has the same circular support
+      // as the rendered rim instead of a coarse convex approximation.
+      const collider =
+        spec.shape === "round" && index === bodySolids.length - 1
+          ? R.ColliderDesc.cylinder(0.08, 0.48).setTranslation(
+              0,
+              h / 2 - 0.08,
+              0,
+            )
+          : solidCollider(solid);
+      this.world.createCollider(
+        collider
+          .setFriction(0.55)
+          .setRestitution(0.08)
+          .setDensity(0.65)
+          .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS),
+        body,
+      );
+    }
     for (const p of connectors(spec))
       this.world.createCollider(
         R.ColliderDesc.cylinder(0.11, 0.3)
