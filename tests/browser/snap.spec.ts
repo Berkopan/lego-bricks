@@ -90,6 +90,52 @@ test("normal drag release joins at the exact displayed hologram pose", async ({
   await expectDisplayedCommit(page, shown);
 });
 
+test("Snap turns a lowering projection into a final-pose hologram and drag release connects", async ({
+  page,
+}, testInfo) => {
+  await enableSnap(page);
+  await fixture(page, { y: 5, x: 0.04, z: 0.04 });
+  await expect.poll(async () => (await state(page)).projection).toBe(true);
+  await expect.poll(async () => (await state(page)).ghost).toBe(true);
+  const beforeDrag = await state(page);
+  expect(beforeDrag.target).not.toBeNull();
+  expect(beforeDrag.target![1]).toBeLessThan(beforeDrag.position[1] - 2);
+
+  await drag(page, 10, 0);
+  await expect.poll(async () => (await state(page)).projection).toBe(true);
+  await expect.poll(async () => (await state(page)).ghost).toBe(true);
+  const shown = await state(page);
+  expect(shown.target![1]).toBeLessThan(shown.position[1] - 2);
+
+  const screenshot = testInfo.outputPath("snap-lowering-projection.png");
+  await page.screenshot({ path: screenshot });
+  await testInfo.attach("snap-lowering-projection", {
+    path: screenshot,
+    contentType: "image/png",
+  });
+
+  await page.mouse.up();
+  await expectDisplayedCommit(page, shown);
+});
+
+test("a lowering projection remains guide-only when Snap is off", async ({
+  page,
+}) => {
+  await fixture(page, { y: 5, x: 0.04, z: 0.04 });
+  await expect(page.locator("#snap-toggle")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await expect.poll(async () => (await state(page)).projection).toBe(true);
+  expect((await state(page)).ghost).toBe(false);
+  await page.locator("#grab").click();
+  await frames(page);
+  const released = await state(page);
+  expect(released.links).toBe(0);
+  expect(released.held).toBe(0);
+  expect(released.ghost).toBe(false);
+});
+
 test("clicking a selected brick without moving never accepts its visible hologram", async ({
   page,
 }) => {
