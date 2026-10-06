@@ -102,3 +102,84 @@ test("connected held and stationary assemblies render projection guides for the 
     contentType: "image/png",
   });
 });
+
+
+test("complex settled assembly projects before the brick enters nearby Snap range", async ({
+  page,
+}, info) => {
+  test.setTimeout(45_000);
+  await page.evaluate(async () => {
+    const [{ catalog }, { Quaternion, Vector3 }] = await Promise.all([
+      import("/src/engine/catalog.ts"),
+      import("/node_modules/three/build/three.module.js"),
+    ]);
+    const find = (id: string) =>
+      catalog.find((item: { id: string }) => item.id === id);
+    const { world, select } = window.__bricks;
+    select(null);
+    world.clear();
+
+    const drift = new Quaternion().setFromAxisAngle(
+      new Vector3(0, 1, 0),
+      0.01,
+    );
+    const base = world.add(
+      find("2x4"),
+      "#3e7b9b",
+      new Vector3(0, 0.6, 0),
+      drift,
+    );
+    const support = world.add(
+      find("2x2"),
+      "#3e7b9b",
+      new Vector3(1, 1.8, 0),
+      drift,
+    );
+    const side = world.add(
+      find("2x2"),
+      "#3e7b9b",
+      new Vector3(-1, 1.8, 0),
+      drift,
+    );
+    const tower = world.add(
+      find("2x2"),
+      "#3e7b9b",
+      new Vector3(-1, 3, 0),
+      drift,
+    );
+    world.connect(support, base, 4);
+    world.connect(side, base, 4);
+    world.connect(tower, side, 4);
+
+    const held = world.add(
+      find("2x2"),
+      "#df553e",
+      new Vector3(1.04, 6, 0.04),
+    );
+    world.grab(held.id);
+    select(held);
+    window.testUpper = held;
+    window.testLower = support;
+  });
+  await frames(page, 3);
+
+  expect((await state(page)).ghost).toBe(false);
+  await expect.poll(async () => (await state(page)).projection).toBe(true);
+
+  await page.locator("#snap-toggle").click();
+  await expect(page.locator("#snap-toggle")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect.poll(async () => (await state(page)).ghost).toBe(true);
+  const current = await state(page);
+  expect(current.target).not.toBeNull();
+  expect(current.target![1]).toBeLessThan(current.position[1] - 2);
+
+  const screenshot = info.outputPath("complex-high-projection.png");
+  await page.screenshot({ path: screenshot });
+  await info.attach("complex-high-projection", {
+    path: screenshot,
+    contentType: "image/png",
+  });
+});

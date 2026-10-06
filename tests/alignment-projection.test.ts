@@ -47,6 +47,7 @@ test("alignment projection draws four corner lines to the exact lowering target"
   );
   const guide: LoweringAlignment = {
     position: new T.Vector3(1, 6, 2.1),
+    rotation: root.rotation.clone(),
     memberId: member.id,
     lowerId: 9,
     drop: 3.2,
@@ -97,6 +98,7 @@ test("a connected held assembly projects every member, not only the mating brick
   const top = brick(2, new T.Vector3(0.04, 6.2, 0.04));
   const guide: LoweringAlignment = {
     position: new T.Vector3(0, 6.2, 0),
+    rotation: top.rotation.clone(),
     memberId: bottom.id,
     lowerId: 9,
     drop: 3.2,
@@ -121,4 +123,37 @@ test("a connected held assembly projects every member, not only the mating brick
         1e-6,
     );
   }
+});
+
+
+test("projection endpoints include the assisted root rotation", () => {
+  const scene = new T.Scene();
+  const projection = new AlignmentProjection(scene);
+  const root = brick(1, new T.Vector3(0, 5, 0));
+  const rotation = new T.Quaternion().setFromAxisAngle(
+    new T.Vector3(0, 1, 0),
+    0.08,
+  );
+  const guide: LoweringAlignment = {
+    position: new T.Vector3(0.2, 5, 0.1),
+    rotation,
+    memberId: root.id,
+    lowerId: 9,
+    drop: 3,
+  };
+
+  projection.show(root, [root], guide);
+  const { attribute } = points(scene);
+  const end = new T.Vector3().fromBufferAttribute(attribute, 1);
+  const corner = new T.Vector3(
+    -root.spec.cols / 2,
+    -root.spec.height / 2 + 0.025,
+    -root.spec.rows / 2,
+  );
+  const expected = corner
+    .clone()
+    .applyQuaternion(rotation)
+    .add(guide.position)
+    .add(new T.Vector3(0, -guide.drop, 0));
+  assert.ok(end.distanceTo(expected) < 1e-6);
 });

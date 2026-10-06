@@ -47,9 +47,12 @@ export interface SnapCandidate {
   readonly studs: number;
 }
 export interface LoweringAlignment {
+  /** Root pose at the current height after planar/assist alignment. */
   position: T.Vector3;
+  rotation: T.Quaternion;
   lowerId: number;
   memberId: number;
+  /** World-Y distance from the aligned pose to the final connector pose. */
   drop: number;
 }
 type TargetPoses = Map<number, { p: T.Vector3; q: T.Quaternion }>;
@@ -797,7 +800,11 @@ export class BrickWorld {
     }
     return true;
   }
-  /** Planar guide independent of snap: this assembly can lower onto real studs. */
+  /**
+   * Planar guide independent of Snap. Candidate geometry deliberately mirrors
+   * nearby Snap assistance, but it is projected to arbitrary height and still
+   * has to pass the complete lowering-path collision check.
+   */
   loweringAlignment(id: number): LoweringAlignment | null {
     if (!this.held.has(id)) return null;
     const root = this.get(id);
@@ -816,26 +823,52 @@ export class BrickWorld {
           ) >
             movingRadius +
               Math.hypot(lower.spec.cols, lower.spec.rows) / 2 +
-              0.24
+              0.6
         )
           continue;
-        const fit = loweringFit(moving, lower);
+        const fit = loweringFit(moving, lower, 0.6);
         if (!fit) continue;
-        const delta = fit.position.clone().sub(moving.position);
+
+        // Apply the exact same rigid rotation correction to the whole held
+        // component, but perform it at the current height. The remaining move
+        // to the connector pose is then a pure world-Y lowering by fit.drop.
+        const delta = fit.rotation
+          .clone()
+          .multiply(moving.rotation.clone().invert())
+          .normalize();
+        const alignedMoving = new T.Vector3(
+          fit.position.x,
+          moving.position.y,
+          fit.position.z,
+        );
+        const position = root.position
+          .clone()
+          .sub(moving.position)
+          .applyQuaternion(delta)
+          .add(alignedMoving);
+        const rotation = delta.clone().multiply(root.rotation).normalize();
         options.push({
-          position: root.position
-            .clone()
-            .add(new T.Vector3(delta.x, 0, delta.z)),
+          position,
+          rotation,
           lowerId: lower.id,
           memberId: member,
           drop: fit.drop,
-          distance: Math.hypot(delta.x, delta.z),
+          distance:
+            Math.hypot(
+              position.x - root.position.x,
+              position.z - root.position.z,
+            ) +
+            root.rotation.angleTo(rotation) * 0.25,
         });
       }
     }
     options.sort((a, b) => a.distance - b.distance || a.drop - b.drop);
     for (const { distance: _distance, ...option } of options) {
-      const aligned = this.sweptPoses(id, option.position);
+      const aligned = this.sweptPoses(
+        id,
+        option.position,
+        option.rotation,
+      );
       if (aligned && this.clearLowering(aligned, option.drop)) return option;
     }
     return null;
@@ -848,7 +881,7 @@ export class BrickWorld {
       this.held.has(guide.lowerId)
     )
       return null;
-    const aligned = this.sweptPoses(id, guide.position);
+    const aligned = this.sweptPoses(id, guide.position, guide.rotation);
     if (!aligned || !this.clearLowering(aligned, guide.drop)) return null;
     const poses: TargetPoses = new Map(
       [...aligned].map(([member, { p, q }]) => [

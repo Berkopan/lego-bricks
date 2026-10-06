@@ -1,30 +1,33 @@
 import { Vector3 } from "three";
 import { mating, type Pose } from "./connections";
 
-/** A horizontal alignment whose final approach only lowers the current pose.
- * Project to the support plane first, so distance above it has no upper limit.
- * Side-facing, upside-down and rotation-assisted connections are not guides.
+const WORLD_UP_MIN = Math.cos(Math.PI / 12);
+
+/**
+ * Resolve the connector pose an upper part would reach after a mostly vertical
+ * lowering. Use the same assisted mating geometry as nearby Snap so a target
+ * that becomes snappable when close does not disappear merely because it is high.
  */
-export function loweringFit(upper: Pose, lower: Pose, radius = 0.24) {
+export function loweringFit(upper: Pose, lower: Pose, radius = 0.6) {
   const normal = new Vector3(0, 1, 0).applyQuaternion(lower.rotation);
   const up = new Vector3(0, 1, 0).applyQuaternion(upper.rotation);
-  if (normal.y < 0.999 || up.y < 0.999) return null;
+  // Projection remains a downward/top-surface affordance, not a side/underside
+  // snap search. Small settling angles from physics are intentionally tolerated.
+  if (normal.y < WORLD_UP_MIN || up.y < WORLD_UP_MIN) return null;
+
   const height = (upper.spec.height + lower.spec.height) / 2;
   const vertical =
     (lower.position.clone().sub(upper.position).dot(normal) + height) /
     normal.y;
   if (vertical >= -1e-4) return null;
+
   const projected = {
     ...upper,
     position: upper.position.clone().add(new Vector3(0, vertical, 0)),
   };
-  const fit = mating(projected, lower, 0.06, false, radius);
+  const fit = mating(projected, lower, 0.06, true, radius);
   if (
     !fit ||
-    fit.rotation
-      .clone()
-      .normalize()
-      .angleTo(upper.rotation.clone().normalize()) > 0.002 ||
     Math.hypot(
       fit.position.x - upper.position.x,
       fit.position.z - upper.position.z,
@@ -32,8 +35,10 @@ export function loweringFit(upper: Pose, lower: Pose, radius = 0.24) {
     fit.position.y >= upper.position.y - 1e-4
   )
     return null;
+
   return {
     position: fit.position,
+    rotation: fit.rotation,
     drop: upper.position.y - fit.position.y,
     count: fit.count,
   };
