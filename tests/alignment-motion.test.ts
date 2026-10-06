@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Vector3 } from "three";
+import { Scene, Vector3 } from "three";
 import {
   planarResistance,
   moveWithAlignment,
 } from "../src/engine/alignment-motion";
-import type { BrickWorld } from "../src/engine/world";
+import { catalog } from "../src/engine/catalog";
+import { BrickWorld } from "../src/engine/world";
 
 test("horizontal alignment creates a strong detent while leaving height and free movement exact", () => {
   const position = new Vector3(0, 6, 0),
@@ -126,4 +127,25 @@ test("free planar movement never changes height", () => {
   assert.equal(result.blocked, false);
   assert.equal(result.lifted, false);
   assert.equal(brick.position.y, 6);
+});
+
+
+test("real collision geometry auto-lifts a dragged brick over a side obstacle", async () => {
+  const world = new BrickWorld(new Scene(), () => {});
+  await world.init();
+  world.add(catalog[1], "#3e7b9b", new Vector3(0, 0.6, 0));
+  const held = world.add(
+    catalog[1],
+    "#df553e",
+    new Vector3(-2.1, 0.6, 0),
+  );
+  world.grab(held.id);
+
+  const result = moveWithAlignment(world, held.id, new Vector3(0, 0.6, 0));
+
+  assert.equal(result.blocked, false);
+  assert.equal(result.lifted, true);
+  assert.ok(held.position.y > 1.6, "brick climbs above the obstacle");
+  assert.ok(Math.abs(held.position.x) < 0.2, "horizontal drag keeps progressing");
+  world.world.free();
 });
