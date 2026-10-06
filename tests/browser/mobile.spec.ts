@@ -128,6 +128,28 @@ test.afterEach(async ({ page }) => {
   expect(errors.get(page) ?? [], "No uncaught browser errors").toEqual([]);
 });
 
+test("mobile layout disables browser double-tap zoom while preserving app-owned touch surfaces", async ({
+  page,
+}) => {
+  const actions = await page.evaluate(() => ({
+    html: getComputedStyle(document.documentElement).touchAction,
+    body: getComputedStyle(document.body).touchAction,
+    canvas: getComputedStyle(document.querySelector("#world")!).touchAction,
+    button: getComputedStyle(
+      document.querySelector("#library-toggle")!,
+    ).touchAction,
+    joystick: getComputedStyle(
+      document.querySelector("#brick-joystick")!,
+    ).touchAction,
+  }));
+
+  expect(actions.html).toBe("manipulation");
+  expect(actions.body).toBe("manipulation");
+  expect(actions.button).toBe("manipulation");
+  expect(actions.canvas).toBe("none");
+  expect(actions.joystick).toBe("none");
+});
+
 test("touch drag with Snap off keeps the moved brick held and creates no hologram or joint", async ({
   page,
 }) => {
