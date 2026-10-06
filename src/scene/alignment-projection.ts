@@ -11,8 +11,8 @@ const CORNERS: [number, number][] = [
 
 /**
  * Draw the lowering projection for the complete held assembly. Every connected
- * member contributes four thin corner guides to the exact pose it would occupy
- * after the assembly is lowered onto the aligned studs.
+ * member contributes four thin corner guides to the exact assisted pose it
+ * would occupy after lowering onto the aligned studs.
  */
 export class AlignmentProjection {
   private readonly geometry = new T.BufferGeometry();
@@ -53,24 +53,37 @@ export class AlignmentProjection {
     )
       return this.hide();
 
-    const shift = guide.position.clone().sub(root.position);
-    shift.y = 0;
+    const delta = guide.rotation
+      .clone()
+      .multiply(root.rotation.clone().invert())
+      .normalize();
+    const finalRoot = guide.position
+      .clone()
+      .add(new T.Vector3(0, -guide.drop, 0));
     const positions = new Float32Array(members.length * CORNERS.length * 2 * 3);
     let cursor = 0;
 
     for (const member of members) {
+      const targetRotation = delta.clone().multiply(member.rotation).normalize();
       const targetCenter = member.position
         .clone()
-        .add(shift)
-        .add(new T.Vector3(0, -guide.drop, 0));
+        .sub(root.position)
+        .applyQuaternion(delta)
+        .add(finalRoot);
       for (const [x, z] of CORNERS) {
-        const local = new T.Vector3(
+        const corner = new T.Vector3(
           (x * member.spec.cols) / 2,
           -member.spec.height / 2 + CORNER_LIFT,
           (z * member.spec.rows) / 2,
-        ).applyQuaternion(member.rotation);
-        const start = local.clone().add(member.position);
-        const end = local.clone().add(targetCenter);
+        );
+        const start = corner
+          .clone()
+          .applyQuaternion(member.rotation)
+          .add(member.position);
+        const end = corner
+          .clone()
+          .applyQuaternion(targetRotation)
+          .add(targetCenter);
         for (const value of [start.x, start.y, start.z, end.x, end.y, end.z])
           positions[cursor++] = value;
       }

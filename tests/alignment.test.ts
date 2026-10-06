@@ -74,7 +74,7 @@ test("guides reject yaw correction, side and underside approaches, and distant p
     spec("2x2"),
     "#66846b",
     new Vector3(0.1, 5, 0.1),
-    new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), 0.02),
+    new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), 0.25),
   );
   world.grab(held.id);
   assert.equal(
@@ -91,7 +91,7 @@ test("guides reject yaw correction, side and underside approaches, and distant p
   );
   assert.equal(world.loweringAlignment(held.id), null);
   assert.ok(
-    world.transform(held.id, new Vector3(0.3, 5, 0.3), new Quaternion()),
+    world.transform(held.id, new Vector3(0.7, 5, 0.7), new Quaternion()),
   );
   assert.equal(world.loweringAlignment(held.id), null);
   world.clear();
@@ -365,5 +365,69 @@ test("a multi-foot held assembly projects onto a connected wide stationary deck"
   assert.equal(preview.poses.length, 3);
   assert.equal(world.commitSnap(bridge.id, preview), true);
   assert.equal(world.links.length, 5);
+  world.world.free();
+});
+
+
+test("high projection agrees with nearby Snap on a slightly settled complex assembly", async () => {
+  const world = await scene();
+  const drift = new Quaternion().setFromAxisAngle(
+    new Vector3(0, 1, 0),
+    0.01,
+  );
+
+  // A deliberately irregular connected target. The tiny yaw models the
+  // numerical settling visible in larger physics-driven builds.
+  const base = world.add(
+    spec("2x4"),
+    "#df553e",
+    new Vector3(0, 0.6, 0),
+    drift,
+  );
+  const support = world.add(
+    spec("2x2"),
+    "#df553e",
+    new Vector3(1, 1.8, 0),
+    drift,
+  );
+  const side = world.add(
+    spec("2x2"),
+    "#df553e",
+    new Vector3(-1, 1.8, 0),
+    drift,
+  );
+  const tower = world.add(
+    spec("2x2"),
+    "#df553e",
+    new Vector3(-1, 3, 0),
+    drift,
+  );
+  world.connect(support, base, 4);
+  world.connect(side, base, 4);
+  world.connect(tower, side, 4);
+
+  const held = world.add(
+    spec("2x2"),
+    "#66846b",
+    new Vector3(1.04, 6, 0.04),
+  );
+  world.grab(held.id);
+
+  const guide = world.loweringAlignment(held.id);
+  assert.ok(
+    guide,
+    "a target that nearby Snap can assist should project from high altitude",
+  );
+  assert.ok(
+    guide.rotation.angleTo(held.rotation) > 0.002,
+    "the guide should carry the target assembly's small settled yaw",
+  );
+  const preview = world.loweringSnapCandidate(held.id, guide);
+  assert.ok(preview);
+  assert.equal(preview.lowerId, support.id);
+
+  // The same geometry remains a normal nearby Snap target after lowering.
+  assert.ok(world.transform(held.id, new Vector3(1.04, 3.35, 0.04)));
+  assert.ok(world.snapCandidate(held.id));
   world.world.free();
 });
