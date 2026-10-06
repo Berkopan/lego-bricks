@@ -1,3 +1,5 @@
+import type { MovementPhase } from "./touch";
+
 export interface StickVector {
   x: number;
   y: number;
@@ -58,12 +60,16 @@ export function bindJoystick(
   move: (x: number, y: number) => void,
   enabled: () => boolean,
   start: () => void,
+  movement: (phase: MovementPhase) => void = () => {},
 ) {
   const state = new JoystickState();
   const doc = pad.ownerDocument;
   const view = doc.defaultView!;
   let frame = 0;
   let previous = 0;
+  const keys = new Set<string>();
+  let active = false;
+  let moved = false;
 
   function paint() {
     const travel = Math.min(pad.clientWidth, pad.clientHeight) * 0.3;
@@ -72,21 +78,44 @@ export function bindJoystick(
     pad.classList.toggle("active", state.pointerId !== null);
   }
 
-  function cancel() {
+  function finish(commit: boolean) {
     const pointerId = state.pointerId;
+    const wasActive = active;
+    const didMove = moved;
+    active = false;
+    moved = false;
+    keys.clear();
     state.cancel();
     view.cancelAnimationFrame(frame);
     frame = 0;
     if (pointerId !== null && pad.hasPointerCapture(pointerId))
       pad.releasePointerCapture(pointerId);
     paint();
+    if (wasActive) movement(commit && didMove ? "release" : "cancel");
+  }
+
+  function cancel() {
+    finish(false);
+  }
+
+  function begin() {
+    active = true;
+    moved = false;
+    movement("start");
+  }
+
+  function execute(x: number, y: number) {
+    if (!active || !enabled()) return cancel();
+    if (!x && !y) return;
+    moved = true;
+    move(x, y);
   }
 
   function tick(now: number) {
     if (state.pointerId === null || !enabled()) return cancel();
     const step = stickStep(state.vector, now - previous);
     previous = now;
-    if (step.x || step.y) move(step.x, step.y);
+    execute(step.x, step.y);
     // A callback may cancel the gesture (for example, selection changed).
     if (state.pointerId !== null) frame = view.requestAnimationFrame(tick);
   }
@@ -103,12 +132,14 @@ export function bindJoystick(
   }
 
   pad.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0 || !enabled() || state.pointerId !== null) return;
+    if (event.button !== 0 || !enabled() || state.pointerId !== null || keys.size) return;
     event.preventDefault();
     event.stopPropagation();
     start();
     if (!enabled() || !state.down(event.pointerId)) return;
     pad.setPointerCapture(event.pointerId);
+    begin();
+    if (!active) return;
     position(event);
     previous = view.performance.now();
     frame = view.requestAnimationFrame(tick);
@@ -120,7 +151,8 @@ export function bindJoystick(
   });
   for (const type of ["pointerup", "pointercancel", "lostpointercapture"])
     pad.addEventListener(type, (event) => {
-      if ((event as PointerEvent).pointerId === state.pointerId) cancel();
+      if ((event as PointerEvent).pointerId === state.pointerId)
+        finish(type === "pointerup" && enabled());
     });
   pad.addEventListener("contextmenu", (event) => event.preventDefault());
   // Keyboard/assistive-technology alternative to the analog gesture.
@@ -132,11 +164,25 @@ export function bindJoystick(
       ArrowDown: { x: 0, y: 0.12 },
     };
     const step = direction[event.key];
-    if (!step || !enabled()) return;
+    if (!step || !enabled() || state.pointerId !== null) return;
+    if (event.repeat && !keys.has(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
-    start();
-    move(step.x, step.y);
+    if (!keys.size) {
+      start();
+      if (!enabled()) return;
+      keys.add(event.key);
+      begin();
+    } else keys.add(event.key);
+    execute(step.x, step.y);
+  });
+  view.addEventListener("keyup", (event) => {
+    if (!keys.delete(event.key)) return;
+    event.preventDefault();
+    if (!keys.size) finish(enabled());
+  });
+  pad.addEventListener("blur", () => {
+    if (keys.size) cancel();
   });
   view.addEventListener("blur", cancel);
   view.addEventListener("pagehide", cancel);

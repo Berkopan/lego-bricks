@@ -1,8 +1,8 @@
 import * as T from "three";
 import type { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { Language } from "./i18n";
-import { bindTouchGestures, type TouchActions } from "./input/touch";
-import { setupMobileHud } from "./mobile-hud";
+import { bindTouchGestures, type MovementPhase, type TouchActions } from "./input/touch";
+import { setupMobileHud, type MovementSource } from "./mobile-hud";
 
 const labels = {
   en: {
@@ -10,14 +10,14 @@ const labels = {
     buildHint: "Drag a brick or use the stick · two fingers to pan / zoom",
     cameraHint: "Drag anywhere to orbit · two fingers to pan / zoom",
     ready: "Aligned · tap Connect", demoHint: "The red brick is ready. Tap Connect.",
-    help: "In Build mode, tap a brick to select it. The transparent joystick at the bottom left moves it relative to your view; push gently for fine positioning. Release the stick to stop. The small buttons at the bottom right lift, lower, rotate and connect the brick. Tap … for X / Z tilt, upright, pick up / release, directional nudges, separate and delete. Extra tools stay closed until you ask for them. You can still drag bricks directly. Drag empty space to orbit, or switch to Camera to orbit over bricks. Move two fingers together to pan, and pinch to zoom. Save and open are available in the footer.",
+    help: "In Build mode, tap a brick to select it. The transparent joystick at the bottom left moves it relative to your view; push gently for fine positioning. The small buttons at the bottom right lift, lower, rotate and connect the brick. You can use the joystick and height buttons together. Enable Snap in the top bar to see a translucent preview of a nearby connection, then release your movement controls while the preview is visible to connect. With Snap off, releasing a control stops movement and keeps the brick held. In both modes, horizontal movement gently resists at alignments where lowering the brick can connect it; keep moving to pass through. Tap … for X / Z tilt, upright, pick up / release, directional nudges, separate and delete. You can also drag bricks directly. Drag empty space to orbit, or switch to Camera to orbit over bricks. Move two fingers together to pan, and pinch to zoom. Save and open are available in the footer.",
   },
   tr: {
     build: "Parça", camera: "Kamera", zoomIn: "Yakınlaştır", zoomOut: "Uzaklaştır", controls: "Dokunmatik kontroller",
     buildHint: "Parçayı sürükle veya joystick'i kullan · iki parmakla kaydır / yakınlaştır",
     cameraHint: "Her yerde sürükleyerek dön · iki parmakla kaydır / yakınlaştır",
     ready: "Hizalandı · Birleştir'e dokun", demoHint: "Kırmızı parça hazır. Birleştir'e dokun.",
-    help: "Parça modunda seçmek için parçaya dokun. Sol alttaki saydam joystick parçayı kameraya göre taşır; hassas konumlandırmak için hafifçe it. Parmağını kaldırınca hareket durur. Sağ alttaki küçük düğmelerle yükselt, alçalt, döndür ve birleştir. X / Z eğme, dik tutma, eline alma / bırakma, yön düğmeleri, ayırma ve silme için … düğmesine dokun. Ek araçlar kendiliğinden açılmaz. Parçaları doğrudan sürüklemeye de devam edebilirsin. Boş alanda sürükleyerek kamerayı döndür; parçaların üzerinde de dönmek için Kamera moduna geç. İki parmakla kaydır ve parmaklarını açıp kapatarak yakınlaştır. Kaydetme ve dosya açma alt çubuktadır.",
+    help: "Parça modunda seçmek için parçaya dokun. Sol alttaki saydam joystick parçayı kameraya göre taşır; hassas konumlandırmak için hafifçe it. Sağ alttaki küçük düğmelerle yükselt, alçalt, döndür ve birleştir. Joystick ile yükseklik düğmelerini aynı anda kullanabilirsin. Üst çubuktan Snap'i açınca yakındaki bağlantının saydam önizlemesi görünür; önizleme varken hareket kontrollerini bırakırsan parçalar kenetlenir. Snap kapalıyken kontrolü bırakmak hareketi durdurur ve parça elinde kalır. Her iki modda da parça alçaltılarak kenetlenebilecek bir hizaya geldiğinde yatay harekette hafif direnç hissedilir; hareket etmeye devam ederek bu hizadan çıkabilirsin. X / Z eğme, dik tutma, eline alma / bırakma, yön düğmeleri, ayırma ve silme için … düğmesine dokun. Parçaları doğrudan da sürükleyebilirsin. Boş alanda sürükleyerek kamerayı döndür; parçaların üzerinde de dönmek için Kamera moduna geç. İki parmakla kaydır ve parmaklarını açıp kapatarak yakınlaştır. Kaydetme ve dosya açma alt çubuktadır.",
   },
 };
 type Label = keyof typeof labels.en;
@@ -28,8 +28,10 @@ interface MobileOptions {
   language(): Language;
   drag: Pick<TouchActions, "start" | "move" | "end">;
   cancel(): void;
+  cancelDrag(): void;
   rotate(axis: "x" | "y" | "z"): void;
   translateBrick(delta: T.Vector3): void;
+  movement(source: MovementSource, phase: MovementPhase): void;
   setLibraryOpen(open: boolean): void;
 }
 export function setupMobile(options: MobileOptions) {
@@ -44,6 +46,7 @@ export function setupMobile(options: MobileOptions) {
   toolbar.className = "touch-only";
   toolbar.innerHTML = `<div class="touch-modes"><button data-mode="build" aria-pressed="true" data-touch-t="build"></button><button data-mode="camera" aria-pressed="false" data-touch-t="camera"></button></div><div class="touch-zoom"><button data-zoom="in">+</button><button data-zoom="out">−</button></div><p id="touch-hint"></p>`;
   document.querySelector("header")!.after(toolbar);
+  const snapToggle = document.querySelector<HTMLButtonElement>("#snap-toggle");
   const help = document.createElement("p");
   help.className = "touch-help touch-only";
   help.dataset.touchT = "help";
@@ -79,7 +82,12 @@ export function setupMobile(options: MobileOptions) {
   const hud = setupMobileHud({
     language: options.language,
     rotate: options.rotate,
-    cancelScene: options.cancel,
+    cancelScene() {
+      // Hand off a canvas drag without cancelling an independent height finger.
+      touch.cancel();
+      options.cancelDrag();
+    },
+    movement: options.movement,
     move(x, y) {
       const forward = controls.target.clone().sub(camera.position).setY(0).normalize();
       const right = new T.Vector3().crossVectors(forward, new T.Vector3(0, 1, 0));
@@ -118,6 +126,10 @@ export function setupMobile(options: MobileOptions) {
     hud.cancel();
     hud.collapse();
     root.classList.toggle("touch-layout", compact.matches);
+    if (snapToggle) {
+      if (compact.matches) toolbar.insertBefore(snapToggle, toolbar.querySelector(".touch-zoom"));
+      else document.querySelector(".top-actions")!.prepend(snapToggle);
+    }
     if (compact.matches) options.setLibraryOpen(false);
     else cameraMode = false;
     translate();

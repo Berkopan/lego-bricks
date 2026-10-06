@@ -1,12 +1,20 @@
 import { partPreviews } from "./scene/part-preview";
+import { SnapHologram } from "./scene/snap-preview";
 import { groundController, groundOptions, groundStyle } from "./scene/ground";
 import * as T from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { seamSegments, visibleSeamHit } from "./engine/seams";
-import { BrickWorld, type Brick, type Connection } from "./engine/world";
+import {
+  BrickWorld,
+  type Brick,
+  type Connection,
+  type SnapCandidate,
+} from "./engine/world";
 import { rotationAt, TURN_DURATION_MS } from "./engine/rotation";
 import { dragTarget } from "./engine/drag";
+import { moveWithAlignment } from "./engine/alignment-motion";
+import { MovementSession } from "./input/movement";
 import { BrickAudio } from "./engine/audio";
 import { catalog, colors, partLabel } from "./engine/catalog";
 import { component } from "./engine/connections";
@@ -19,7 +27,7 @@ let mobile: ReturnType<typeof setupMobile> | undefined;
 let language: Language =
   localStorage.getItem("bricks-language") === "tr" ? "tr" : "en";
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true"></button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle" aria-controls="library"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><label class="ground-control"><span class="eyebrow" data-t="ground"></span><select id="ground"></select></label><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div><select id="part-filter" aria-label="Parts"></select><div id="cards"></div></aside><section id="selection" class="selection" hidden><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
+app.innerHTML = `<canvas id="world" aria-label="3D brick workspace"></canvas><header><a class="brand" href="./"><span class="brand-icon">▦</span>bricks<span class="brand-dot">.</span></a><div class="top-actions"><button id="snap-toggle" class="snap-toggle" aria-pressed="false"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M5 4v9a7 7 0 0 0 14 0V4h-5v9a2 2 0 0 1-4 0V4Z"/><path d="M5 8h5m4 0h5"/></svg><span>Snap</span></button><button id="help" class="icon-button">?</button><button id="sound" class="icon-button" aria-pressed="true"></button><div class="language"><button data-lang="en">EN</button><button data-lang="tr">TR</button></div><button id="library-toggle" class="library-toggle" aria-controls="library"><span>▦</span><span data-t="library"></span><span id="toggle-arrow">↗</span></button></div></header><aside id="library"><h2 data-t="library"></h2><label class="ground-control"><span class="eyebrow" data-t="ground"></span><select id="ground"></select></label><div class="color-heading eyebrow" data-t="color"></div><div id="swatches"></div><select id="part-filter" aria-label="Parts"></select><div id="cards"></div></aside><section id="selection" class="selection" hidden><div class="eyebrow" data-t="selected"></div><div id="selection-content"></div></section><div class="bottom-center"><div id="alignment" role="status"></div></div><footer><div class="status"><button id="pause"><i></i><span data-t="live"></span></button><span class="footer-divider"></span><span id="counts"></span></div><div class="scene-actions"><button id="view">⌖</button><button id="save" data-t="save"></button><button id="load" data-t="load"></button><button id="reset" data-t="reset"></button></div></footer><div id="toast" role="status"></div><dialog id="help-dialog"><button id="close-help" class="close">×</button><div class="eyebrow" data-t="shortcuts"></div><h2 data-t="help"></h2><button id="demo" class="text-button" data-t="demo"></button><p data-t="helpText"></p><div class="key-row"><kbd>Q</kbd><kbd>E</kbd><span data-t="lift"></span></div><div class="key-row"><kbd>R</kbd><span data-t="axisY"></span></div><div class="key-row"><kbd>X</kbd><kbd>Z</kbd><span data-t="tiltAxes"></span></div><div class="key-row"><kbd data-t="doubleClick"></kbd><span data-t="seamHelp"></span></div><div class="key-row"><kbd>Delete</kbd><kbd>Backspace</kbd><span data-t="delete"></span></div><div class="key-row"><kbd>Space</kbd><span data-t="press"></span></div></dialog><input type="file" id="file" accept=".json" hidden><div id="loading" data-t="loading"></div>`;
 const $ = <E extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<E>(s)!;
 const text = (key: keyof typeof messages.en) => messages[language][key];
@@ -97,6 +105,12 @@ $("#ground").onchange = (event) => {
 };
 
 const world = new BrickWorld(scene, (v) => audio.play(v));
+const hologram = new SnapHologram(scene);
+const movement = new MovementSession();
+const heightKeys = new Set<string>();
+let snapEnabled = false;
+let snapPreview: SnapCandidate | null = null;
+let alignmentHintUntil = 0;
 let selected: Brick | null = null,
   currentColor = colors[0],
   paused = false,
@@ -136,6 +150,7 @@ function cancelTurn() {
 }
 function beginTurn(to: T.Quaternion, label: string) {
   if (!selected || turning || pressing) return;
+  clearSnapPreview();
   if (!world.held.has(selected.id)) world.grab(selected.id);
   const from = selected.rotation.clone();
   if (from.angleTo(to) < 1e-6) return;
@@ -251,8 +266,12 @@ function translate() {
     );
   $("#help").title = text("help");
   $("#help").setAttribute("aria-label", text("help"));
-  $("#close-help").setAttribute("aria-label", language === "tr" ? "Yardımı kapat" : "Close help");
+  $("#close-help").setAttribute(
+    "aria-label",
+    language === "tr" ? "Yardımı kapat" : "Close help",
+  );
   renderSoundButton();
+  renderSnapButton();
   $("#view").title = text("view");
   $("#view").setAttribute("aria-label", text("view"));
   $("#library-toggle").setAttribute("aria-label", text("library"));
@@ -310,7 +329,10 @@ function renderCards() {
 function select(b: Brick | null) {
   cancelTurn();
   cancelPress();
-  if (selected?.id !== b?.id) mobile?.selected();
+  if (selected?.id !== b?.id) {
+    cancelInteraction();
+    mobile?.selected();
+  }
   selected = b;
   if (b && mobile?.enabled) setLibraryOpen(false);
   dirty = true;
@@ -329,14 +351,21 @@ function renderSelection() {
   $("#grab").onclick = () => {
     cancelTurn();
     cancelPress();
-    held ? world.release() : world.grab(b.id);
+    if (held) {
+      const snapped = acceptSnap();
+      cancelInteraction();
+      if (!snapped) world.release();
+    } else {
+      cancelInteraction();
+      world.grab(b.id);
+    }
     dirty = true;
   };
   $("#rotate").onclick = () => rotate("y");
   $("#upright").onclick = upright;
   $("#remove").onclick = deleteSelected;
-  $("#up").onclick = () => height(0.24);
-  $("#down").onclick = () => height(-0.24);
+  $("#up").onclick = () => heightStep(0.24);
+  $("#down").onclick = () => heightStep(-0.24);
   const press = $("#press");
   press.onclick = () => startPress();
   if (links.length)
@@ -368,12 +397,30 @@ function deleteSelected() {
 function height(amount: number) {
   translateSelected(new T.Vector3(0, amount, 0));
 }
+let heightStepId = 0;
+function heightStep(amount: number) {
+  // The touch HUD invokes these same buttons from its existing repeat session.
+  if (movement.active || !snapEnabled) return height(amount);
+  const source = `height-step-${++heightStepId}`;
+  movementPhase(source, "start");
+  height(amount);
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => movementPhase(source, "release")),
+  );
+}
 function translateSelected(delta: T.Vector3) {
   if (!selected || pressing || turning) return;
   const wasHeld = world.held.has(selected.id);
   if (!wasHeld) world.grab(selected.id);
-  if (!world.transform(selected.id, selected.position.clone().add(delta)))
+  const target = selected.position.clone().add(delta);
+  if (Math.hypot(delta.x, delta.z) > 1e-8) {
+    const result = moveWithAlignment(world, selected.id, target);
+    if (result.blocked) toast(text("blocked"));
+    if (result.moved) movement.edit();
+    if (result.aligned) alignmentHintUntil = performance.now() + 250;
+  } else if (!world.transform(selected.id, target)) {
     toast(text("blocked"));
+  } else if (delta.lengthSq() > 1e-12) movement.edit();
   // Position/candidate rendering happens every frame; don't replace focused controls.
   if (!wasHeld) dirty = true;
 }
@@ -412,6 +459,7 @@ function startPress() {
     toast(text("notReady"));
     return;
   }
+  clearSnapPreview();
   audio.unlock();
   pressing = {
     start: performance.now(),
@@ -486,6 +534,46 @@ $("#sound").onclick = () => {
   renderSoundButton();
   audio.unlock();
 };
+function clearSnapPreview() {
+  snapPreview = null;
+  hologram.hide();
+}
+function renderSnapButton() {
+  const button = $("#snap-toggle");
+  button.setAttribute("aria-pressed", String(snapEnabled));
+  button.setAttribute("aria-label", text(snapEnabled ? "snapOn" : "snapOff"));
+  button.title = text(snapEnabled ? "snapOn" : "snapOff");
+}
+$("#snap-toggle").onclick = () => {
+  cancelInteraction();
+  snapEnabled = !snapEnabled;
+  renderSnapButton();
+};
+/** The last rendered hologram is authoritative; never choose a new target here. */
+function acceptSnap() {
+  if (
+    !snapEnabled ||
+    !snapPreview ||
+    !hologram.visible ||
+    !selected ||
+    turning ||
+    pressing
+  )
+    return false;
+  const preview = snapPreview;
+  clearSnapPreview();
+  if (!world.commitSnap(selected.id, preview)) return false;
+  audio.unlock();
+  audio.play(0.8, false, true);
+  toast(text("connected"));
+  dirty = true;
+  return true;
+}
+function movementPhase(source: string, phase: "start" | "release" | "cancel") {
+  if (phase === "start") movement.start(source);
+  else if (movement.end(source, phase === "release")) acceptSnap();
+  if (phase === "cancel") clearSnapPreview();
+}
 $("#pause").onclick = () => {
   paused = !paused;
   $("#pause").classList.toggle("paused", paused);
@@ -566,7 +654,12 @@ function cast(e: { clientX: number; clientY: number }) {
   );
   ray.setFromCamera(mouse, camera);
 }
-let seamPointer: { pointerId: number; x: number; y: number; link: Connection } | null = null;
+let seamPointer: {
+  pointerId: number;
+  x: number;
+  y: number;
+  link: Connection;
+} | null = null;
 let seamClick: Connection | null = null;
 function pickSeam() {
   updateSeams();
@@ -600,7 +693,10 @@ function beginDrag(e: TouchPoint): boolean {
   if (pressing || turning) return false;
   cast(e);
   seamClick = null;
-  const hit = ray.intersectObjects(world.bricks.map((b) => b.mesh), true)[0];
+  const hit = ray.intersectObjects(
+    world.bricks.map((b) => b.mesh),
+    true,
+  )[0];
   if (!hit) return false;
   let obj: T.Object3D = hit.object;
   while (!obj.userData.brick && obj.parent) obj = obj.parent;
@@ -612,19 +708,28 @@ function beginDrag(e: TouchPoint): boolean {
   controls.enabled = false;
   // Keep the horizontal plane fixed: height controls change only Y.
   drag = {
-    id: b.id, pointerId: e.pointerId,
-    startX: e.clientX, startY: e.clientY, moving: false,
-    offset: b.position.clone().sub(p), plane,
+    id: b.id,
+    pointerId: e.pointerId,
+    startX: e.clientX,
+    startY: e.clientY,
+    moving: false,
+    offset: b.position.clone().sub(p),
+    plane,
   };
+  movementPhase("drag", "start");
   return true;
 }
 function moveDrag(e: TouchPoint) {
   if (!drag || drag.pointerId !== e.pointerId || turning || pressing) return;
   cast(e);
-  if (!drag.moving && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 4) {
+  if (
+    !drag.moving &&
+    Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > 4
+  ) {
     world.grab(drag.id);
     const b = world.get(drag.id);
-    world.transform(b.id, b.position.clone().add(new T.Vector3(0, 0.4, 0)));
+    if (world.transform(b.id, b.position.clone().add(new T.Vector3(0, 0.4, 0))))
+      movement.edit();
     drag.moving = true;
     dirty = true;
   }
@@ -632,87 +737,136 @@ function moveDrag(e: TouchPoint) {
     const b = world.get(drag.id);
     const target = dragTarget(ray.ray, drag.plane, drag.offset, b.position.y);
     if (target) {
-      const dist = target.distanceTo(b.position),
-        steps = Math.max(1, Math.ceil(dist / 0.15)),
-        origin = b.position.clone();
-      for (let i = 1; i <= steps; i++)
-        if (!world.transform(b.id, origin.clone().lerp(target, i / steps))) break;
+      const result = moveWithAlignment(world, b.id, target);
+      // Absorb only the resistance, preserving the pointer's existing collision
+      // behavior and avoiding motion when the pointer stays still during lift.
+      drag.offset.x += result.offset.x;
+      drag.offset.z += result.offset.z;
+      if (result.moved) movement.edit();
+      if (result.aligned) alignmentHintUntil = performance.now() + 250;
     }
   }
 }
 // Install capture handlers BEFORE the mouse handlers and keep touches out of OrbitControls.
 mobile = setupMobile({
-  canvas, camera, controls, language: () => language,
+  canvas,
+  camera,
+  controls,
+  language: () => language,
   drag: {
-    start: (point) => { audio.unlock(); return beginDrag(point); },
-    move: (point) => { moveDrag(point); if (drag?.moving) mobile?.collapse(); },
+    start: (point) => {
+      audio.unlock();
+      return beginDrag(point);
+    },
+    move: (point) => {
+      moveDrag(point);
+      if (drag?.moving) mobile?.collapse();
+    },
     end: endDrag,
   },
   cancel: cancelInteraction,
+  cancelDrag: () => endDrag(),
   rotate,
   translateBrick: translateSelected,
+  movement: movementPhase,
   setLibraryOpen,
 });
-canvas.addEventListener("pointerdown", (e) => {
-  audio.unlock();
-  if (e.pointerType === "touch" || e.button !== 0 || pressing || turning || mobile?.cameraMode) return;
-  cast(e);
-  const seam = pickSeam();
-  if (seam) {
-    seamPointer = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, link: seam };
-    controls.enabled = false;
-    e.stopImmediatePropagation();
-    canvas.setPointerCapture(e.pointerId);
-    return;
-  }
-  if (beginDrag(e)) {
-    e.stopImmediatePropagation();
-    canvas.setPointerCapture(e.pointerId);
-  }
-}, true);
+canvas.addEventListener(
+  "pointerdown",
+  (e) => {
+    audio.unlock();
+    if (
+      e.pointerType === "touch" ||
+      e.button !== 0 ||
+      pressing ||
+      turning ||
+      mobile?.cameraMode
+    )
+      return;
+    cast(e);
+    const seam = pickSeam();
+    if (seam) {
+      seamPointer = {
+        pointerId: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        link: seam,
+      };
+      controls.enabled = false;
+      e.stopImmediatePropagation();
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (beginDrag(e)) {
+      e.stopImmediatePropagation();
+      canvas.setPointerCapture(e.pointerId);
+    }
+  },
+  true,
+);
 canvas.addEventListener("pointermove", (e) => {
-  if (seamPointer?.pointerId === e.pointerId && Math.hypot(e.clientX - seamPointer.x, e.clientY - seamPointer.y) > 4) {
+  if (
+    seamPointer?.pointerId === e.pointerId &&
+    Math.hypot(e.clientX - seamPointer.x, e.clientY - seamPointer.y) > 4
+  ) {
     seamPointer = null;
     seamClick = null;
     endDrag();
   }
   moveDrag(e);
 });
-function endDrag() {
+function endDrag(commit = false) {
+  const edited = !!drag?.moving;
   drag = null;
   controls.enabled = true;
+  movementPhase("drag", commit && edited ? "release" : "cancel");
 }
 canvas.addEventListener("pointerup", (e) => {
   if (seamPointer?.pointerId === e.pointerId) {
     seamClick = seamPointer.link;
     seamPointer = null;
     endDrag();
-  } else if (drag?.pointerId === e.pointerId) endDrag();
+  } else if (drag?.pointerId === e.pointerId) endDrag(true);
 });
 canvas.addEventListener("pointercancel", (e) => {
-  if (drag?.pointerId === e.pointerId || seamPointer?.pointerId === e.pointerId) {
+  if (
+    drag?.pointerId === e.pointerId ||
+    seamPointer?.pointerId === e.pointerId
+  ) {
     seamPointer = null;
     seamClick = null;
     endDrag();
   }
 });
 canvas.addEventListener("lostpointercapture", (e) => {
-  if (drag?.pointerId === e.pointerId || seamPointer?.pointerId === e.pointerId) {
+  if (
+    drag?.pointerId === e.pointerId ||
+    seamPointer?.pointerId === e.pointerId
+  ) {
     seamPointer = null;
     seamClick = null;
     endDrag();
   }
 });
 function cancelInteraction() {
+  movement.cancel();
+  heightKeys.clear();
+  clearSnapPreview();
+  alignmentHintUntil = 0;
   mobile?.cancel();
   seamPointer = null;
   seamClick = null;
   endDrag();
 }
-window.addEventListener("blur", () => {
+function interruptEditing() {
   cancelInteraction();
   cancelTurn();
   cancelPress();
+}
+window.addEventListener("blur", interruptEditing);
+window.addEventListener("pagehide", interruptEditing);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) interruptEditing();
 });
 window.addEventListener("keydown", (e) => {
   if (
@@ -727,6 +881,7 @@ window.addEventListener("keydown", (e) => {
     if (!e.repeat) startPress();
   }
   if (e.code === "Escape") {
+    cancelInteraction();
     cancelTurn();
     cancelPress();
     world.release();
@@ -741,11 +896,18 @@ window.addEventListener("keydown", (e) => {
   if (e.key.toLowerCase() === "r") rotate("y");
   if (e.key.toLowerCase() === "x") rotate("x");
   if (e.key.toLowerCase() === "z") rotate("z");
-  if (e.key.toLowerCase() === "q") height(-0.12);
-  if (e.key.toLowerCase() === "e") height(0.12);
+  if (["q", "e"].includes(e.key.toLowerCase())) {
+    const key = e.key.toLowerCase();
+    if (e.repeat && !heightKeys.has(key)) return;
+    heightKeys.add(key);
+    movementPhase(`key-${key}`, "start");
+    height(key === "q" ? -0.12 : 0.12);
+  }
 });
 window.addEventListener("keyup", (e) => {
   if (e.code === "Space") cancelPress();
+  if (heightKeys.delete(e.key.toLowerCase()))
+    movementPhase(`key-${e.key.toLowerCase()}`, "release");
 });
 function resize() {
   cancelInteraction();
@@ -848,21 +1010,38 @@ function frame(now: number) {
   if (selected) {
     outline.setFromObject(selected.mesh);
     const candidate = turning ? null : world.candidate(selected.id);
+    snapPreview =
+      snapEnabled && !turning && !pressing && !mobile?.cameraMode
+        ? world.snapCandidate(selected.id)
+        : null;
+    if (snapPreview)
+      hologram.show(
+        [...world.held].map((id) => world.get(id)),
+        snapPreview,
+      );
+    else hologram.hide();
     (outline.material as T.LineBasicMaterial).color.set(
-      candidate ? 0x46866b : 0x8c9591,
+      snapPreview ? 0x299ca5 : candidate ? 0x46866b : 0x8c9591,
     );
     $("#alignment").textContent = world.held.has(selected.id)
       ? turning
         ? turning.label
         : pressing
           ? text("pressing")
-          : candidate
-            ? mobile?.enabled ? mobile.text("ready") : text("ready")
-            : ""
+          : snapPreview
+            ? text("snapReady")
+            : candidate
+              ? mobile?.enabled
+                ? mobile.text("ready")
+                : text("ready")
+              : now < alignmentHintUntil
+                ? text("loweringAligned")
+                : ""
       : "";
     $("#alignment").classList.toggle("ready", !!candidate);
+    $("#alignment").classList.toggle("snap-ready", !!snapPreview);
     $("#press")?.toggleAttribute("disabled", !candidate);
-    ghost.visible = !!candidate;
+    ghost.visible = !!candidate && !snapEnabled;
     if (candidate) {
       ghost.scale.set(candidate.upper.spec.cols, candidate.upper.spec.rows, 1);
       ghost.quaternion
@@ -885,6 +1064,8 @@ function frame(now: number) {
     }
   } else {
     $("#alignment").textContent = "";
+    $("#alignment").classList.remove("snap-ready");
+    clearSnapPreview();
     ghost.visible = false;
   }
   $("#counts").textContent =

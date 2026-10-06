@@ -27,8 +27,12 @@
 .touch-layout .library-toggle { min-width: 44px; justify-content: center; padding: 10px 12px; gap: 12px; }
 .touch-layout #touch-toolbar {
   position: fixed; top: calc(64px + var(--safe-top)); left: 50%; transform: translateX(-50%);
-  display: grid; grid-template-columns: auto auto; gap: 6px 12px; z-index: 3;
+  display: grid; grid-template-columns: auto auto auto; gap: 6px 8px; z-index: 3;
   max-width: calc(100% - var(--edge-left) - var(--edge-right));
+}
+.touch-layout #touch-toolbar .snap-toggle {
+  align-self: stretch; padding: 5px 9px; gap: 4px; border-radius: 12px;
+  flex-direction: column; min-width: 50px; font-size: 10px;
 }
 .touch-modes, .touch-zoom {
   display: flex; gap: 4px; padding: 4px; border: 1px solid #fff; border-radius: 12px;
@@ -157,6 +161,7 @@ html.touch-layout #selection.selection {
   .touch-layout .library-toggle { padding: 8px; }
   .touch-layout .library-toggle span:nth-child(2), .touch-layout #toggle-arrow { display: none; }
   .touch-layout #touch-toolbar { gap: 6px; }
+  .touch-layout .touch-modes button { min-width: 62px; padding: 8px; }
   .touch-layout #library {
     top: auto; left: var(--edge-left); right: var(--edge-right); width: auto;
     bottom: calc(var(--footer-height) + 8px); max-height: calc(100dvh - var(--safe-top) - var(--footer-height) - 148px);
@@ -169,6 +174,12 @@ html.touch-layout #selection.selection {
   .touch-layout #pause { justify-content: center; }
   .touch-layout .scene-actions { flex: 1; justify-content: space-between; gap: 4px; }
   .touch-layout .scene-actions button:last-child { padding: 8px; }
+}
+@media (max-width: 350px) {
+  .touch-layout .touch-modes button { min-width: 54px; padding: 6px; }
+  .touch-layout .touch-zoom { gap: 0; padding: 3px; }
+  .touch-layout #touch-toolbar { gap: 4px; }
+  .touch-layout #touch-toolbar .snap-toggle { min-width: 44px; padding: 4px; }
 }
 @media (max-height: 500px) and (min-width: 540px) {
   .touch-layout .brand { font-size: 22px; }

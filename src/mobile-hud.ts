@@ -1,5 +1,5 @@
 import { bindJoystick, keepsJoystickWhile } from "./input/joystick";
-import { bindRepeatActions } from "./input/touch";
+import { bindRepeatActions, type MovementPhase } from "./input/touch";
 import type { Language } from "./i18n";
 
 const labels = {
@@ -19,11 +19,13 @@ const labels = {
   },
 };
 type Label = keyof typeof labels.en;
+export type MovementSource = "stick" | "repeat";
 interface HudOptions {
   language(): Language;
   move(x: number, y: number): void;
   rotate(axis: "x" | "y" | "z"): void;
   cancelScene(): void;
+  movement(source: MovementSource, phase: MovementPhase): void;
 }
 
 /** Persistent, transparent controls; the original desktop controls remain untouched. */
@@ -91,12 +93,15 @@ export function setupMobileHud(options: HudOptions) {
     options.move(action === "left" ? -step : action === "right" ? step : 0,
       action === "forward" ? -step : action === "back" ? step : 0);
   }
-  const repeat = bindRepeatActions(hud, run);
+  const repeat = bindRepeatActions(hud, run, phase => options.movement("repeat", phase), enabled);
   const stick = bindJoystick(pad, options.move, enabled, () => {
+    // A height finger remains independent in either start order. Directional
+    // nudges give way to the joystick instead of competing on the same plane.
+    if (!keepsJoystickWhile(repeat.action)) repeat.cancel();
     // Stop a canvas drag before the joystick becomes the movement owner.
     options.cancelScene();
     setExpanded(false);
-  });
+  }, phase => options.movement("stick", phase));
   function cancel() {
     stick.cancel();
     repeat.cancel();
@@ -124,10 +129,6 @@ export function setupMobileHud(options: HudOptions) {
       if (enabled()) options.rotate(button.dataset.axis as "x" | "z");
       setExpanded(false);
     };
-  });
-  hud.querySelectorAll<HTMLButtonElement>("[data-repeat]").forEach(button => {
-    // Physical pointers are handled by bindRepeatActions; this is for keyboard / AT clicks.
-    button.onclick = () => run(button.dataset.repeat!);
   });
   $("#hud-seams").onchange = () => {
     const original = source.querySelector<HTMLSelectElement>("#seams");

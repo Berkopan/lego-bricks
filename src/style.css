@@ -86,6 +86,27 @@ header {
   width: 31px;
   height: 31px;
 }
+.snap-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 11px;
+  border: 1px solid #c9d6d1;
+  border-radius: 9px;
+  background: #fafbf780;
+  color: #657b74;
+  font-size: 12px;
+  font-weight: 600;
+}
+.snap-toggle[aria-pressed="true"] {
+  color: #1c6c76;
+  background: #d5eff1;
+  border-color: #64a7b0;
+}
+.snap-toggle svg {
+  flex-shrink: 0;
+}
 .language {
   display: flex;
   gap: 3px;
@@ -493,6 +514,10 @@ select {
 #alignment.ready {
   background: #e1eddf;
   color: #426a4b;
+}
+#alignment.snap-ready {
+  background: #e0f3f1d9;
+  color: #246e78;
 }
 footer {
   position: fixed;
