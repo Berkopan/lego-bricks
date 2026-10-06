@@ -11,7 +11,9 @@ Built with TypeScript, Three.js, and Rapier. Runs entirely in the browser and bu
 - Dynamic gravity, friction, collision response, tumbling, and continuous collision detection.
 - A collapsible library on the right. New bricks appear held above the work surface.
 - Free movement rather than world-grid placement. Connector alignment is checked in the target brick's local coordinates.
-- Explicit press-to-connect: correct positioning alone never creates a joint. Click **Press to connect** or hold **Space**; a short press stroke toward the mating surface ends with recorded LEGO audio.
+- Explicit press-to-connect remains the default. Click **Press to connect** or hold **Space**; a short press stroke toward the mating surface ends with recorded LEGO audio.
+- Optional **Snap** mode previews a nearby, valid connection as a translucent cyan hologram of the entire held assembly. Release the drag or movement controls while it is visible to connect at that exact pose. Snap starts off on every page load.
+- Subtle horizontal resistance over usable stud alignments helps you feel when a held brick can be lowered into place, independently of Snap mode.
 - Connected bricks move together. Separating a seam releases connections crossing that interface and preserves connections on either side, including a five-brick stack splitting into groups of three and two.
 - A wide brick can attach to multiple supports in one press.
 - English and Turkish interfaces, remembered locally.
@@ -49,6 +51,15 @@ npm run build   # TypeScript validation and production build
 npm run preview # serve the production build locally
 ```
 
+The browser interaction suite checks mouse dragging and real touch/joystick release behavior in Chromium, including both orders of simultaneous joystick and height input:
+
+```sh
+npx playwright install chromium
+npm run test:ui
+```
+
+CI runs this suite in addition to the engine tests and production build. Screenshots of the hologram and any failed browser checks are available in the browser-test-results artifact.
+
 ## Controls
 
 | Action                      | Control                                                                      |
@@ -61,6 +72,7 @@ npm run preview # serve the production build locally
 | Tilt                        | **X / Z**                                                                    |
 | Stand upright               | **U** or Upright; lift first if space is tight                               |
 | Connect                     | Green alignment indicator, then click **Press to connect** or hold **Space** |
+| Snap preview                | Toggle **Snap**; release a moved drag or movement controls while the cyan hologram is visible |
 | Cancel a keyboard press     | Release Space before the stroke completes                                    |
 | Release to physics          | **Escape** or Release                                                        |
 | Separate                    | Select a connected brick, then double-click a highlighted seam; or choose a seam and click **Separate**                  |
@@ -68,7 +80,9 @@ npm run preview # serve the production build locally
 | Pan                         | Right-drag                                                                   |
 | Zoom                        | Mouse wheel                                                                  |
 
-A held object remains in your hand when you stop dragging. This lets you adjust height and rotation before releasing it. Lift above nearby bricks before moving across them. The connection example in the help dialog starts with two aligned bricks so you can try pressing immediately.
+With Snap off, or with no valid hologram, a held object remains in your hand when you stop dragging. This lets you adjust height and rotation before releasing it. With Snap on, a normal movement release accepts the displayed connection; the Release button also accepts an available hologram. Escape always releases to physics without snapping. Selecting a brick, cancelling a gesture, switching to camera controls, or losing focus never creates a connection. When using the joystick and height buttons together, only releasing the last movement control can accept the snap.
+
+The soft alignment resistance works with Snap on or off. It slows horizontal dragging, joystick movement, and directional nudges near a usable stud alignment. It never changes height or rotation, never creates a connection, and can be overcome by continuing to move. Real connector shapes and the whole assembly's downward clearance are checked, including when held well above the short snap range. Lift above nearby bricks before moving across them. The connection example in the help dialog starts with two aligned bricks so you can try pressing immediately.
 
 Choose Ivory, Sand, Slate, or Grass from the ground selector in the library. This visual preference is remembered in your browser; changing it keeps your bricks and physics intact. Grass uses a locally generated texture and requires no downloads.
 
@@ -82,14 +96,20 @@ Audio starts after a user gesture, in accordance with browser autoplay rules. Us
 | `src/engine/solids.ts` | Shared convex bodies for special geometry, colliders and manual clearance |
 | `src/engine/geometry.ts`    | Procedural hollow shells, studs, and support tubes                                  |
 | `src/engine/connections.ts` | Local-space mating checks and connected-component traversal                         |
+| `src/engine/alignment.ts` | Connector projection for a valid downward approach at any height |
+| `src/engine/alignment-motion.ts` | Finite horizontal resistance with stable absolute-pointer motion |
 | `src/engine/world.ts`       | Rapier bodies, compound colliders, joints, held assemblies, separation, persistence |
 | `src/engine/audio.ts`       | Cached recording playback and small pitch/gain variation                            |
 | `src/i18n.ts`               | Both interface languages                                                            |
 | `src/main.ts`               | Scene, input, pressure animation, and interface integration                         |
+| `src/input/movement.ts` | Shared movement session and final release across simultaneous controls |
+| `src/scene/snap-preview.ts` | Cached, non-interactive hologram of the complete target assembly |
 
 Each brick is a dynamic rigid body with a compound set of wall, roof, and cylindrical stud colliders. Engaged bricks use fixed joints; collisions within an engaged pair are disabled. Simulation advances at a fixed 120 Hz with bounded catch-up. Held connected components temporarily become kinematic and return to dynamic bodies on release.
 
 Mating requires compatible surface normals, a quarter-turn relative orientation (single round studs/sockets allow free yaw), matching stud pitch, a small horizontal tolerance, and a limited approach distance. Alignment previews are permissive only within those tolerances. Pressing checks clearance and creates joints only after the press stroke. Either side can be held: a lower brick can press upward into an existing assembly’s underside, or an upper brick can press downward onto its studs. A connection graph records which bricks actually engage.
+
+Snap uses a separate, wider candidate query; the existing manual press tolerances remain unchanged. The hologram stores immutable final poses for all held members. Release revalidates the displayed pair, held assembly, stationary anchor, exact contacts, and swept path before changing any body or creating any joint. A stale or blocked preview is rejected rather than replaced with another target. Holograms have no colliders, shadows, raycast targets, or serialized state. Both modes still build to static files for GitHub Pages.
 
 Separation uses the selected connection's interface plane. Connections crossing that plane are removed together after checking the extraction path, while internal connections remain intact. The lifted component stays in your hand. An obstructed separation is rejected.
 

@@ -6,6 +6,7 @@ import { component, mating, type Link, type Pose } from "./connections";
 import { overlapDepth, bottomOf } from "./overlap";
 import { brickMesh } from "./geometry";
 import { solids, type Solid } from "./solids";
+import { loweringFit } from "./alignment";
 function solidCollider(s: Solid) {
   return s.kind === "box"
     ? R.ColliderDesc.cuboid(
@@ -22,6 +23,50 @@ export interface Connection extends Link {
   joint: R.ImpulseJoint;
   studs: number;
 }
+type PositionSnapshot = Readonly<{ x: number; y: number; z: number }>;
+type RotationSnapshot = Readonly<{
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+}>;
+export interface SnapPose {
+  readonly id: number;
+  readonly position: PositionSnapshot;
+  readonly rotation: RotationSnapshot;
+}
+/** The complete, immutable pose displayed by a snap hologram. */
+export interface SnapCandidate {
+  readonly rootId: number;
+  readonly position: PositionSnapshot;
+  readonly rotation: RotationSnapshot;
+  readonly poses: readonly SnapPose[];
+  readonly upperId: number;
+  readonly lowerId: number;
+  readonly stationaryId: number;
+  readonly studs: number;
+}
+export interface LoweringAlignment {
+  position: T.Vector3;
+  lowerId: number;
+  memberId: number;
+  drop: number;
+}
+type TargetPoses = Map<number, { p: T.Vector3; q: T.Quaternion }>;
+type Fit = NonNullable<ReturnType<typeof mating>>;
+const snapshotPose = (id: number, p: T.Vector3, q: T.Quaternion): SnapPose =>
+  Object.freeze({
+    id,
+    position: Object.freeze({ x: p.x, y: p.y, z: p.z }),
+    rotation: Object.freeze({ x: q.x, y: q.y, z: q.z, w: q.w }),
+  });
+const samePosition = (a: PositionSnapshot, b: PositionSnapshot) =>
+  new T.Vector3().copy(a).distanceTo(new T.Vector3().copy(b)) <= 1e-4;
+const sameRotation = (a: RotationSnapshot, b: RotationSnapshot) =>
+  new T.Quaternion()
+    .copy(a)
+    .normalize()
+    .angleTo(new T.Quaternion().copy(b).normalize()) <= 1e-4;
 export class BrickWorld {
   world!: R.World;
   events!: R.EventQueue;
@@ -32,6 +77,17 @@ export class BrickWorld {
   private elapsed = 0;
   private impactTimes = new Map<string, number>();
   private quietUntil = new Map<number, number>();
+  private holdRevision = 0;
+  private snapPreviews = new WeakMap<
+    SnapCandidate,
+    {
+      revision: number;
+      members: Brick[];
+      stationary: Brick;
+      anchor: SnapPose;
+      poses: TargetPoses;
+    }
+  >();
   constructor(
     public scene: T.Scene,
     public onImpact: (v: number) => void,
@@ -239,6 +295,7 @@ export class BrickWorld {
     }
   }
   release() {
+    this.holdRevision++;
     for (const i of this.held) {
       const b = this.get(i);
       b.body.setBodyType(R.RigidBodyType.Dynamic, true);
@@ -400,15 +457,69 @@ export class BrickWorld {
     return true;
   }
   candidate(id: number) {
-    if (!this.held.has(id)) return null;
+    const result = this.findCandidate(id, 0.65, 0.45);
+    if (!result) return null;
+    const { poses: _poses, ...candidate } = result;
+    return candidate;
+  }
+  private pairCandidate(
+    id: number,
+    moving: Brick,
+    stationary: Brick,
+    fromBelow: boolean,
+    maxGap: number,
+    maxHorizontal: number,
+  ) {
     const root = this.get(id);
-    type Fit = NonNullable<ReturnType<typeof mating>>;
+    const upper = fromBelow ? stationary : moving;
+    const lower = fromBelow ? moving : stationary;
+    const contact = mating(upper, lower, maxGap, true, maxHorizontal);
+    if (!contact) return null;
+    // mating gives the upper target with the lower fixed. Invert that
+    // rigid transform when holding the lower, keeping the upper in place.
+    const delta = fromBelow
+      ? upper.rotation.clone().multiply(contact.rotation.clone().invert())
+      : contact.rotation.clone().multiply(upper.rotation.clone().invert());
+    const position = fromBelow
+      ? lower.position
+          .clone()
+          .sub(contact.position)
+          .applyQuaternion(delta)
+          .add(upper.position)
+      : contact.position;
+    const distance = position.distanceToSquared(moving.position);
+    const fit: Fit = {
+      ...contact,
+      position: root.position
+        .clone()
+        .sub(moving.position)
+        .applyQuaternion(delta)
+        .add(position),
+      rotation: delta.clone().multiply(root.rotation),
+    };
+    const surfaceFit = fromBelow
+      ? {
+          ...contact,
+          position: upper.position.clone(),
+          rotation: upper.rotation.clone(),
+        }
+      : contact;
+    return { upper, lower, stationary, surfaceFit, fit, distance };
+  }
+  private findCandidate(
+    id: number,
+    maxGap: number,
+    maxHorizontal: number,
+    exact = false,
+  ) {
+    if (!this.held.has(id)) return null;
     let best: {
       upper: Brick;
       lower: Brick;
       stationary: Brick;
       surfaceFit: Fit;
       fit: Fit;
+      poses: TargetPoses;
     } | null = null;
     let bestDistance = Infinity;
     // Any held member can supply either sockets (above) or studs (below).
@@ -417,48 +528,272 @@ export class BrickWorld {
         if (this.held.has(stationary.id)) continue;
         const moving = this.get(member);
         for (const fromBelow of [false, true]) {
-          const upper = fromBelow ? stationary : moving;
-          const lower = fromBelow ? moving : stationary;
-          const contact = mating(upper, lower, 0.65, true);
-          if (!contact) continue;
-          // mating gives the upper target with the lower fixed. Invert that
-          // rigid transform when holding the lower, keeping the upper in place.
-          const delta = fromBelow
-            ? upper.rotation.clone().multiply(contact.rotation.clone().invert())
-            : contact.rotation
-                .clone()
-                .multiply(upper.rotation.clone().invert());
-          const position = fromBelow
-            ? lower.position
-                .clone()
-                .sub(contact.position)
-                .applyQuaternion(delta)
-                .add(upper.position)
-            : contact.position;
-          const distance = position.distanceToSquared(moving.position);
+          const pair = this.pairCandidate(
+            id,
+            moving,
+            stationary,
+            fromBelow,
+            maxGap,
+            maxHorizontal,
+          );
+          if (!pair) continue;
+          const { upper, lower, surfaceFit, fit, distance } = pair;
           if (distance >= bestDistance) continue;
-          const fit = {
-            ...contact,
-            position: root.position
-              .clone()
-              .sub(moving.position)
-              .applyQuaternion(delta)
-              .add(position),
-            rotation: delta.clone().multiply(root.rotation),
-          };
-          if (!this.sweptPoses(id, fit.position, fit.rotation)) continue;
-          const surfaceFit = fromBelow
-            ? {
-                ...contact,
-                position: upper.position.clone(),
-                rotation: upper.rotation.clone(),
-              }
-            : contact;
-          best = { upper, lower, stationary, surfaceFit, fit };
+          const poses = this.sweptPoses(id, fit.position, fit.rotation);
+          if (!poses || (exact && !this.clearAt(poses))) continue;
+          best = { upper, lower, stationary, surfaceFit, fit, poses };
           bestDistance = distance;
         }
       }
     return best;
+  }
+  private contactsAt(poses: TargetPoses) {
+    const contacts: { a: Brick; b: Brick; studs: number }[] = [];
+    for (const [id, { p, q }] of poses) {
+      const moving = this.get(id);
+      const pose: Pose = { ...moving, position: p, rotation: q };
+      for (const stationary of this.bricks) {
+        if (poses.has(stationary.id)) continue;
+        for (const [upper, lower] of [
+          [pose, stationary],
+          [stationary, pose],
+        ]) {
+          const fit = mating(upper, lower, 0.06);
+          if (fit && fit.position.distanceTo(upper.position) < 0.04)
+            contacts.push({
+              a: this.get(upper.id),
+              b: this.get(lower.id),
+              studs: fit.count,
+            });
+        }
+      }
+    }
+    return contacts;
+  }
+  /** Optional wider assistance; the legacy candidate/press thresholds stay fixed. */
+  snapCandidate(id: number): SnapCandidate | null {
+    const c = this.findCandidate(id, 1, 0.6, true);
+    if (!c) return null;
+    if (
+      !this.contactsAt(c.poses).some(
+        (contact) => contact.a.id === c.upper.id && contact.b.id === c.lower.id,
+      )
+    )
+      return null;
+    const root = c.poses.get(id)!;
+    const rootPose = snapshotPose(id, root.p, root.q);
+    const preview: SnapCandidate = Object.freeze({
+      rootId: id,
+      position: rootPose.position,
+      rotation: rootPose.rotation,
+      poses: Object.freeze(
+        [...c.poses].map(([member, { p, q }]) => snapshotPose(member, p, q)),
+      ),
+      upperId: c.upper.id,
+      lowerId: c.lower.id,
+      stationaryId: c.stationary.id,
+      studs: c.surfaceFit.count,
+    });
+    this.snapPreviews.set(preview, {
+      revision: this.holdRevision,
+      members: [...this.held].map((member) => this.get(member)),
+      stationary: c.stationary,
+      anchor: snapshotPose(
+        c.stationary.id,
+        c.stationary.position,
+        c.stationary.rotation,
+      ),
+      poses: c.poses,
+    });
+    return preview;
+  }
+  /** Commit only the displayed target. Validation never searches for a new pair. */
+  commitSnap(id: number, preview: SnapCandidate): boolean {
+    const saved = this.snapPreviews.get(preview);
+    if (
+      !saved ||
+      preview.rootId !== id ||
+      saved.revision !== this.holdRevision ||
+      !this.held.has(id) ||
+      this.held.size !== saved.members.length ||
+      saved.members.some(
+        (member) => !this.held.has(member.id) || this.get(member.id) !== member,
+      ) ||
+      this.get(saved.stationary.id) !== saved.stationary ||
+      !samePosition(saved.stationary.position, saved.anchor.position) ||
+      !sameRotation(saved.stationary.rotation, saved.anchor.rotation)
+    )
+      return false;
+    const connected = component(id, this.links);
+    if (
+      connected.size !== this.held.size ||
+      [...connected].some((member) => !this.held.has(member))
+    )
+      return false;
+    const fromBelow = this.held.has(preview.lowerId);
+    const moving = this.get(fromBelow ? preview.lowerId : preview.upperId);
+    // A final pointer move may arrive between the displayed frame and release.
+    // Accept it only when this same pair still resolves to the shown target.
+    const pair = this.pairCandidate(
+      id,
+      moving,
+      saved.stationary,
+      fromBelow,
+      1,
+      0.6,
+    );
+    if (
+      !pair ||
+      !samePosition(pair.fit.position, preview.position) ||
+      !sameRotation(pair.fit.rotation, preview.rotation)
+    )
+      return false;
+    const swept = this.sweptPoses(
+      id,
+      new T.Vector3().copy(preview.position),
+      new T.Quaternion().copy(preview.rotation),
+    );
+    if (
+      !swept ||
+      [...saved.poses].some(([member, target]) => {
+        const current = swept.get(member);
+        return (
+          !current ||
+          !samePosition(current.p, target.p) ||
+          !sameRotation(current.q, target.q)
+        );
+      }) ||
+      !this.clearAt(saved.poses)
+    )
+      return false;
+    const contacts = this.contactsAt(saved.poses);
+    if (
+      !contacts.some(
+        (contact) =>
+          contact.a.id === preview.upperId && contact.b.id === preview.lowerId,
+      )
+    )
+      return false;
+    // Everything, including all other support contacts, is checked before the
+    // first body moves. Use the stored poses so the hologram remains authoritative.
+    for (const [member, { p, q }] of saved.poses) {
+      const brick = this.get(member);
+      brick.body.setTranslation(p, true);
+      brick.body.setRotation(q, true);
+      brick.body.setNextKinematicTranslation(p);
+      brick.body.setNextKinematicRotation(q);
+    }
+    this.sync();
+    for (const contact of contacts)
+      this.connect(contact.a, contact.b, contact.studs);
+    this.release();
+    return true;
+  }
+  /** Check only occupied height ranges, so a guide high above the scene stays cheap. */
+  private clearLowering(poses: TargetPoses, drop: number) {
+    const bounds = (box: OBB) => {
+      const e = box.rotation.elements;
+      const half = box.halfSize;
+      const extents = new T.Vector3(
+        Math.abs(e[0]) * half.x +
+          Math.abs(e[3]) * half.y +
+          Math.abs(e[6]) * half.z,
+        Math.abs(e[1]) * half.x +
+          Math.abs(e[4]) * half.y +
+          Math.abs(e[7]) * half.z,
+        Math.abs(e[2]) * half.x +
+          Math.abs(e[5]) * half.y +
+          Math.abs(e[8]) * half.z,
+      );
+      return {
+        min: box.center.clone().sub(extents),
+        max: box.center.clone().add(extents),
+      };
+    };
+    const obstacles = this.bricks
+      .filter((brick) => !poses.has(brick.id))
+      .map((brick) => bounds(this.obb(brick)));
+    const intervals: [number, number][] = [[drop, drop]];
+    for (const [member, { p, q }] of poses) {
+      const moving = bounds(this.obb(this.get(member), p, q));
+      for (const obstacle of obstacles) {
+        if (
+          moving.min.x > obstacle.max.x ||
+          moving.max.x < obstacle.min.x ||
+          moving.min.z > obstacle.max.z ||
+          moving.max.z < obstacle.min.z
+        )
+          continue;
+        const start = Math.max(0, moving.min.y - obstacle.max.y - 0.01);
+        const end = Math.min(drop, moving.max.y - obstacle.min.y + 0.01);
+        if (start <= end) intervals.push([start, end]);
+      }
+    }
+    intervals.sort((a, b) => a[0] - b[0]);
+    const ranges: [number, number][] = [];
+    for (const [start, end] of intervals) {
+      const previous = ranges.at(-1);
+      if (previous && start <= previous[1])
+        previous[1] = Math.max(previous[1], end);
+      else ranges.push([start, end]);
+    }
+    for (const [start, end] of ranges) {
+      const steps = Math.max(1, Math.ceil((end - start) / 0.15));
+      for (let step = 0; step <= steps; step++) {
+        const down = start + ((end - start) * step) / steps;
+        const sample: TargetPoses = new Map(
+          [...poses].map(([member, { p, q }]) => [
+            member,
+            { p: p.clone().add(new T.Vector3(0, -down, 0)), q },
+          ]),
+        );
+        if (!this.clearAt(sample)) return false;
+      }
+    }
+    return true;
+  }
+  /** Planar guide independent of snap: this assembly can lower onto real studs. */
+  loweringAlignment(id: number): LoweringAlignment | null {
+    if (!this.held.has(id)) return null;
+    const root = this.get(id);
+    const options: (LoweringAlignment & { distance: number })[] = [];
+    for (const member of this.held) {
+      const moving = this.get(member);
+      const movingRadius = Math.hypot(moving.spec.cols, moving.spec.rows) / 2;
+      for (const lower of this.bricks) {
+        if (
+          this.held.has(lower.id) ||
+          lower.spec.top === "none" ||
+          moving.position.y <= lower.position.y ||
+          Math.hypot(
+            moving.position.x - lower.position.x,
+            moving.position.z - lower.position.z,
+          ) >
+            movingRadius +
+              Math.hypot(lower.spec.cols, lower.spec.rows) / 2 +
+              0.24
+        )
+          continue;
+        const fit = loweringFit(moving, lower);
+        if (!fit) continue;
+        const delta = fit.position.clone().sub(moving.position);
+        options.push({
+          position: root.position
+            .clone()
+            .add(new T.Vector3(delta.x, 0, delta.z)),
+          lowerId: lower.id,
+          memberId: member,
+          drop: fit.drop,
+          distance: Math.hypot(delta.x, delta.z),
+        });
+      }
+    }
+    options.sort((a, b) => a.distance - b.distance || a.drop - b.drop);
+    for (const { distance: _distance, ...option } of options) {
+      const aligned = this.sweptPoses(id, option.position);
+      if (aligned && this.clearLowering(aligned, option.drop)) return option;
+    }
+    return null;
   }
   connect(a: Brick, b: Brick, studs: number) {
     for (const id of [

@@ -12,10 +12,12 @@ export interface TouchPair {
 export interface TouchActions {
   start(point: TouchPoint): boolean;
   move(point: TouchPoint): void;
-  end(): void;
+  /** Only a normal release after dragging may commit the displayed snap. */
+  end(commit: boolean): void;
   orbit(dx: number, dy: number): void;
   panZoom(before: TouchPair, after: TouchPair): void;
 }
+export type MovementPhase = "start" | "release" | "cancel";
 const TAP_SLOP = 9;
 function pair(points: TouchPoint[]): TouchPair {
   const [a, b] = points;
@@ -39,15 +41,20 @@ export class TouchGestures {
   }
   down(point: TouchPoint, cameraMode = false) {
     if (this.points.has(point.pointerId)) return;
-    this.points.set(point.pointerId, { ...point });
-    if (this.points.size === 1) {
+    if (this.points.size === 0) {
+      // Picking a different brick cancels previous scene input. Establish this
+      // gesture after that callback so it cannot cancel its own initial pointer.
+      const piece = !cameraMode && this.actions.start(point);
+      this.points.set(point.pointerId, { ...point });
       this.origin = { ...point };
       this.moved = false;
-      this.kind = !cameraMode && this.actions.start(point) ? "piece" : "orbit";
+      this.kind = piece ? "piece" : "orbit";
     } else {
+      this.points.set(point.pointerId, { ...point });
       // A second finger ends editing, but never releases/drops the held assembly.
-      if (this.kind === "piece") this.actions.end();
+      const wasPiece = this.kind === "piece";
       this.kind = "multi";
+      if (wasPiece) this.actions.end(false);
     }
   }
   move(point: TouchPoint) {
@@ -73,14 +80,20 @@ export class TouchGestures {
   }
   up(pointerId: number) {
     if (!this.points.delete(pointerId)) return;
-    if (this.points.size === 0) this.cancel();
+    if (this.points.size === 0) this.finish(true);
   }
   cancel() {
-    if (this.kind === "piece") this.actions.end();
+    this.finish(false);
+  }
+  private finish(commit: boolean) {
+    const wasPiece = this.kind === "piece";
+    const didMove = this.moved;
     this.points.clear();
     this.kind = "idle";
     this.origin = null;
     this.moved = false;
+    // Reset ownership before callbacks, which may cancel other input handlers.
+    if (wasPiece) this.actions.end(commit && didMove);
   }
 }
 
@@ -127,45 +140,114 @@ export function bindTouchGestures(
 }
 
 /** Capture on the persistent panel, not a button replaced by renderSelection(). */
-export function bindRepeatActions(panel: HTMLElement, run: (action: string) => void) {
+export function bindRepeatActions(
+  panel: HTMLElement,
+  run: (action: string) => void,
+  movement: (phase: MovementPhase) => void = () => {},
+  enabled: () => boolean = () => true,
+) {
+  const doc = panel.ownerDocument;
+  const view = doc.defaultView!;
   let pointer: number | null = null;
+  const keys = new Set<string>();
+  let active = false;
+  let activeAction: string | undefined;
   let delay = 0;
   let repeat = 0;
-  function cancel() {
+  let completionFrame = 0;
+  function finish(commit: boolean) {
     const id = pointer;
+    const wasActive = active;
+    active = false;
+    activeAction = undefined;
     pointer = null;
-    window.clearTimeout(delay);
-    window.clearInterval(repeat);
+    keys.clear();
+    view.clearTimeout(delay);
+    view.clearInterval(repeat);
+    view.cancelAnimationFrame(completionFrame);
+    completionFrame = 0;
     if (id !== null && panel.hasPointerCapture(id)) panel.releasePointerCapture(id);
+    if (wasActive) movement(commit ? "release" : "cancel");
+  }
+  function cancel() {
+    finish(false);
+  }
+  function begin() {
+    if (active) return;
+    active = true;
+    movement("start");
+  }
+  function execute(action: string) {
+    if (!active || !enabled()) return cancel();
+    activeAction = action;
+    run(action);
+  }
+  function buttonFor(event: Event) {
+    return (event.target as Element).closest<HTMLButtonElement>("button[data-repeat]");
   }
   panel.addEventListener("pointerdown", event => {
-    const button = (event.target as Element).closest<HTMLButtonElement>("button[data-repeat]");
-    if (!button || button.disabled || event.button !== 0 || pointer !== null) return;
+    const button = buttonFor(event);
+    if (!button || button.disabled || event.button !== 0 || pointer !== null || keys.size || !enabled()) return;
     event.preventDefault();
+    // A physical gesture takes over from a pending assistive-technology click.
+    cancel();
     const action = button.dataset.repeat!;
     pointer = event.pointerId;
     panel.setPointerCapture(pointer);
-    run(action);
-    delay = window.setTimeout(() => {
-      repeat = window.setInterval(() => run(action), 90);
+    begin();
+    execute(action);
+    if (!active) return;
+    delay = view.setTimeout(() => {
+      repeat = view.setInterval(() => execute(action), 90);
     }, 350);
   });
   for (const type of ["pointerup", "pointercancel", "lostpointercapture"])
     panel.addEventListener(type, event => {
-      if ((event as PointerEvent).pointerId === pointer) cancel();
+      if ((event as PointerEvent).pointerId === pointer) finish(type === "pointerup" && enabled());
     });
-  // A physical tap was already handled on pointerdown. Keyboard/AT clicks still work.
-  panel.addEventListener("click", event => {
-    if (event.detail > 0 && (event.target as Element).closest("button[data-repeat]")) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }
-  }, true);
-  window.addEventListener("blur", cancel);
-  window.addEventListener("pagehide", cancel);
-  window.addEventListener("resize", cancel);
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) cancel();
+  // Own keyboard activation so Space does not also trigger the canvas press shortcut.
+  panel.addEventListener("keydown", event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const button = buttonFor(event);
+    if (!button || button.disabled || !enabled() || pointer !== null) return;
+    if (event.repeat && !keys.has(event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    view.cancelAnimationFrame(completionFrame);
+    completionFrame = 0;
+    keys.add(event.key);
+    begin();
+    execute(button.dataset.repeat!);
   });
-  return { cancel };
+  view.addEventListener("keyup", event => {
+    if (!keys.delete(event.key)) return;
+    event.preventDefault();
+    if (!keys.size) finish(enabled());
+  });
+  panel.addEventListener("focusout", () => {
+    if (keys.size) cancel();
+  });
+  // Physical and keyboard events were handled above. AT clicks have no pointer
+  // or key release, so leave a rendering opportunity before completing the step.
+  panel.addEventListener("click", event => {
+    const button = buttonFor(event);
+    if (!button) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.detail > 0 || button.disabled || !enabled() || pointer !== null || keys.size) return;
+    view.cancelAnimationFrame(completionFrame);
+    begin();
+    execute(button.dataset.repeat!);
+    if (!active) return;
+    completionFrame = view.requestAnimationFrame(() => {
+      completionFrame = view.requestAnimationFrame(() => finish(enabled()));
+    });
+  }, true);
+  view.addEventListener("blur", cancel);
+  view.addEventListener("pagehide", cancel);
+  view.addEventListener("resize", cancel);
+  doc.addEventListener("visibilitychange", () => {
+    if (doc.hidden) cancel();
+  });
+  return { cancel, get action() { return activeAction; } };
 }

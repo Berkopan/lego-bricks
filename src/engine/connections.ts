@@ -39,6 +39,7 @@ export function mating(
   lower: Pose,
   maxGap = 0.65,
   assist = false,
+  maxHorizontal = assist ? 0.45 : 0.17,
 ) {
   const inv = lower.rotation.clone().invert();
   const relative = inv.clone().multiply(upper.rotation);
@@ -82,7 +83,7 @@ export function mating(
         dz = z;
       }
     }
-  if (nearest > (assist ? 0.45 : 0.17)) return null;
+  if (nearest > maxHorizontal) return null;
   const count = bottoms.filter((b) =>
     tops.some(
       (a) =>
