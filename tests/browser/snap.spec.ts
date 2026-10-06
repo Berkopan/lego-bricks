@@ -80,8 +80,10 @@ test("normal drag release joins at the exact displayed hologram pose", async ({
   const shown = await state(page);
   expect(shown.links).toBe(0);
   expect(shown.poses).toHaveLength(1);
+  const screenshot = testInfo.outputPath("snap-hologram-desktop.png");
+  await page.screenshot({ path: screenshot });
   await testInfo.attach("snap-hologram-desktop", {
-    body: await page.screenshot(),
+    path: screenshot,
     contentType: "image/png",
   });
   await page.mouse.up();

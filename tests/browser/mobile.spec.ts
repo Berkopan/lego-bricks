@@ -13,10 +13,13 @@ type Point = { x: number; y: number };
 class Fingers {
   private points = new Map<number, Point>();
   constructor(private session: CDPSession) {}
-  private send(type: "touchStart" | "touchMove" | "touchEnd" | "touchCancel") {
+  private send(
+    type: "touchStart" | "touchMove" | "touchEnd" | "touchCancel",
+    points = this.points,
+  ) {
     return this.session.send("Input.dispatchTouchEvent", {
       type,
-      touchPoints: [...this.points].map(([id, point]) => ({
+      touchPoints: [...points].map(([id, point]) => ({
         id,
         ...point,
         radiusX: 1,
@@ -34,10 +37,13 @@ class Fingers {
     await this.send("touchMove");
   }
   async up(id: number) {
+    const point = this.points.get(id);
+    if (!point) throw new Error(`Touch ${id} is not down`);
     this.points.delete(id);
-    // CDP diffs active touch points. A partial release keeps the other fingers;
-    // touchEnd itself requires an empty list and ends the final remaining touch.
-    await this.send(this.points.size ? "touchMove" : "touchEnd");
+    // Chromium's default WebTouchEvent path releases the supplied touchEnd IDs;
+    // omitting a finger from touchMove leaves it pressed. An empty touchEnd list
+    // would release every finger, hiding bugs in independent control ownership.
+    await this.send("touchEnd", new Map([[id, point]]));
   }
   async close() {
     if (this.points.size) {
