@@ -289,12 +289,20 @@ export class BrickWorld {
   get(id: number) {
     return this.bricks.find((b) => b.id === id)!;
   }
+  private setBodySensors(body: R.RigidBody, sensor: boolean) {
+    for (let i = 0; i < body.numColliders(); i++)
+      body.collider(i).setSensor(sensor);
+  }
   grab(id: number) {
     this.release();
     this.held = component(id, this.links);
     for (const i of this.held) {
       const b = this.get(i);
       b.body.setBodyType(R.RigidBodyType.KinematicPositionBased, true);
+      // Editing uses clearAt/sweptPoses for collision safety. Making the held
+      // colliders sensors prevents Rapier's one-way kinematic contacts from
+      // shoving otherwise stationary bricks while the user rubs past them.
+      this.setBodySensors(b.body, true);
       b.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       b.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     }
@@ -303,6 +311,7 @@ export class BrickWorld {
     this.holdRevision++;
     for (const i of this.held) {
       const b = this.get(i);
+      this.setBodySensors(b.body, false);
       b.body.setBodyType(R.RigidBodyType.Dynamic, true);
       b.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       b.body.setAngvel({ x: 0, y: 0, z: 0 }, true);

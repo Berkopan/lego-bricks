@@ -187,3 +187,77 @@ test("real collision geometry auto-lifts a dragged brick over a side obstacle", 
   );
   assisted.world.world.free();
 });
+
+
+test("held kinematic colliders do not push stationary bricks while editing", async () => {
+  const world = new BrickWorld(new Scene(), () => {});
+  await world.init();
+  const lower = world.add(catalog[1], "#3e7b9b", new Vector3(0, 2, 0));
+  for (let i = 0; i < 360; i++) world.step();
+  const resting = lower.position.clone();
+
+  const held = world.add(
+    catalog[1],
+    "#df553e",
+    new Vector3(-2.1, resting.y, resting.z),
+  );
+  world.grab(held.id);
+  assert.equal(
+    world.transform(
+      held.id,
+      new Vector3(-1.95, held.position.y, held.position.z),
+    ),
+    true,
+    "clearance model allows the close pass",
+  );
+
+  for (let i = 0; i < 60; i++) world.step();
+  assert.ok(
+    lower.position.distanceTo(resting) < 1e-3,
+    `stationary brick moved during held contact: ${lower.position.toArray().join(",")}`,
+  );
+
+  world.release();
+  assert.equal(held.body.collider(0).isSensor(), false);
+  world.world.free();
+});
+
+test("auto-lift produces a snap that remains valid through the next physics step", async () => {
+  const world = new BrickWorld(new Scene(), () => {});
+  await world.init();
+  const lower = world.add(catalog[1], "#3e7b9b", new Vector3(0, 2, 0));
+  for (let i = 0; i < 360; i++) world.step();
+
+  const held = world.add(
+    catalog[1],
+    "#df553e",
+    new Vector3(-2.1, lower.position.y, lower.position.z),
+  );
+  world.grab(held.id);
+  const moved = moveWithAlignment(
+    world,
+    held.id,
+    new Vector3(-1.4, held.position.y, held.position.z),
+  );
+  assert.equal(moved.blocked, false);
+  assert.equal(moved.lifted, true);
+
+  const preview =
+    (moved.alignment
+      ? world.loweringSnapCandidate(held.id, moved.alignment)
+      : null) ?? world.snapCandidate(held.id);
+  assert.ok(preview, "auto-lift should immediately expose a snap target");
+
+  world.step();
+  assert.equal(
+    world.commitSnap(held.id, preview!),
+    true,
+    "the displayed snap must survive the following solver step",
+  );
+  assert.equal(world.links.length, 1);
+  assert.ok(
+    lower.position.distanceTo(new Vector3(0, lower.position.y, lower.position.z)) <
+      1e-3,
+  );
+  world.world.free();
+});

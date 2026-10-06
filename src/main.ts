@@ -427,12 +427,14 @@ function translateSelected(delta: T.Vector3) {
     if (result.blocked) toast(text("blocked"));
     if (result.moved) movement.edit();
     setAlignmentGuide(result.alignment);
+    refreshSnapPreview();
   } else if (!world.transform(selected.id, target)) {
     toast(text("blocked"));
     setAlignmentGuide(null);
   } else {
     if (delta.lengthSq() > 1e-12) movement.edit();
     refreshAlignmentGuide();
+    refreshSnapPreview();
   }
   // Position/candidate rendering happens every frame; don't replace focused controls.
   if (!wasHeld) dirty = true;
@@ -581,6 +583,26 @@ function refreshAlignmentGuide() {
       ? world.loweringAlignment(selected.id)
       : null,
   );
+}
+function refreshSnapPreview() {
+  snapPreview =
+    snapEnabled &&
+    selected &&
+    world.held.has(selected.id) &&
+    !turning &&
+    !pressing &&
+    !mobile?.cameraMode
+      ? (alignmentGuide
+          ? world.loweringSnapCandidate(selected.id, alignmentGuide)
+          : null) ?? world.snapCandidate(selected.id)
+      : null;
+  if (snapPreview)
+    hologram.show(
+      [...world.held].map((id) => world.get(id)),
+      snapPreview,
+    );
+  else hologram.hide();
+  return snapPreview;
 }
 function renderSnapButton() {
   const button = $("#snap-toggle");
@@ -799,6 +821,9 @@ function moveDrag(e: TouchPoint) {
       drag.offset.z += result.offset.z;
       if (result.moved) movement.edit();
       setAlignmentGuide(result.alignment);
+      // Pointer-up may immediately follow this event, before the next frame.
+      // Keep the displayed/committable snap target synchronized with auto-lift.
+      refreshSnapPreview();
     }
   }
 }
@@ -1066,18 +1091,7 @@ function frame(now: number) {
   if (selected) {
     outline.setFromObject(selected.mesh);
     const candidate = turning ? null : world.candidate(selected.id);
-    snapPreview =
-      snapEnabled && !turning && !pressing && !mobile?.cameraMode
-        ? (alignmentGuide
-            ? world.loweringSnapCandidate(selected.id, alignmentGuide)
-            : null) ?? world.snapCandidate(selected.id)
-        : null;
-    if (snapPreview)
-      hologram.show(
-        [...world.held].map((id) => world.get(id)),
-        snapPreview,
-      );
-    else hologram.hide();
+    refreshSnapPreview();
     (outline.material as T.LineBasicMaterial).color.set(
       snapPreview ? 0x299ca5 : candidate ? 0x46866b : 0x8c9591,
     );
