@@ -141,11 +141,11 @@ test("real collision geometry auto-lifts a dragged brick over a side obstacle", 
   );
   world.grab(held.id);
 
-  const result = moveWithAlignment(world, held.id, new Vector3(0, 0.6, 0));
+  const result = moveWithAlignment(world, held.id, new Vector3(-1.7, 0.6, 0));
 
   assert.equal(result.blocked, false);
   assert.equal(result.lifted, true);
   assert.ok(held.position.y > 1.6, "brick climbs above the obstacle");
-  assert.ok(Math.abs(held.position.x) < 0.2, "horizontal drag keeps progressing");
+  assert.ok(held.position.x > -1.9, "horizontal drag keeps progressing");
   world.world.free();
 });
