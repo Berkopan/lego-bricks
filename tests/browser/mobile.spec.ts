@@ -150,6 +150,28 @@ test("mobile layout disables browser double-tap zoom while preserving app-owned 
   expect(actions.joystick).toBe("none");
 });
 
+test("mobile UI disables text selection and long-press copy surfaces", async ({
+  page,
+}) => {
+  const selection = await page.evaluate(() => ({
+    html: getComputedStyle(document.documentElement).userSelect,
+    body: getComputedStyle(document.body).userSelect,
+    brand: getComputedStyle(document.querySelector(".brand")!).userSelect,
+    library: getComputedStyle(
+      document.querySelector("#library h2")!,
+    ).userSelect,
+    button: getComputedStyle(
+      document.querySelector("#library-toggle")!,
+    ).userSelect,
+  }));
+
+  expect(selection.html).toBe("none");
+  expect(selection.body).toBe("none");
+  expect(selection.brand).toBe("none");
+  expect(selection.library).toBe("none");
+  expect(selection.button).toBe("none");
+});
+
 test("touch drag with Snap off keeps the moved brick held and creates no hologram or joint", async ({
   page,
 }) => {

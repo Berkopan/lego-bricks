@@ -18,6 +18,17 @@ html.touch-layout,
      touch-action:none rules below for app-owned gestures. */
   touch-action: manipulation;
 }
+
+/* Mobile is an app-like surface: long presses should stay with the brick
+   controls instead of starting text selection or Safari's copy/share callout. */
+html.touch-layout,
+.touch-layout body,
+.touch-layout body * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
 .touch-layout body { overscroll-behavior: none; }
 .touch-layout .touch-only { display: block; }
 .touch-layout button { min-height: 44px; touch-action: manipulation; }
