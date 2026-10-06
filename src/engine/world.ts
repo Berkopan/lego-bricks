@@ -103,10 +103,16 @@ export class BrickWorld {
     this.world.timestep = 1 / 120;
     this.world.numSolverIterations = 12;
     this.events = new R.EventQueue(true);
+    // Keep the visible floor at y=0, but make the static collider extend far
+    // downward instead of using a thin slab. Fast/rotating compound pieces can
+    // otherwise end a step partially through a thin floor and fall asleep there.
+    // A tiny contact skin gives the solver room to prevent sub-pixel penetration
+    // without creating a visible hover gap.
     this.world.createCollider(
-      R.ColliderDesc.cuboid(100, 0.2, 100)
-        .setTranslation(0, -0.2, 0)
-        .setFriction(0.65),
+      R.ColliderDesc.cuboid(100, 100, 100)
+        .setTranslation(0, -100, 0)
+        .setFriction(0.65)
+        .setContactSkin(0.004),
     );
   }
   /** Reserve a free position before releasing the previous held assembly.
