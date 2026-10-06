@@ -131,21 +131,59 @@ test("free planar movement never changes height", () => {
 
 
 test("real collision geometry auto-lifts a dragged brick over a side obstacle", async () => {
-  const world = new BrickWorld(new Scene(), () => {});
-  await world.init();
-  world.add(catalog[1], "#3e7b9b", new Vector3(0, 0.6, 0));
-  const held = world.add(
-    catalog[1],
-    "#df553e",
-    new Vector3(-2.1, 0.6, 0),
+  const createScene = async () => {
+    const world = new BrickWorld(new Scene(), () => {});
+    await world.init();
+    world.add(catalog[1], "#3e7b9b", new Vector3(0, 0.6, 0));
+    const held = world.add(
+      catalog[1],
+      "#df553e",
+      new Vector3(-2.1, 0.6, 0),
+    );
+    world.grab(held.id);
+    return { world, held };
+  };
+
+  const direct = await createScene();
+  assert.equal(
+    direct.world.transform(direct.held.id, new Vector3(-1.97, 0.6, 0)),
+    true,
+    "a free approach step stays at the original height",
   );
-  world.grab(held.id);
+  assert.equal(
+    direct.world.transform(direct.held.id, new Vector3(-1.82, 0.6, 0)),
+    false,
+    "the same-height side contact is blocked",
+  );
+  assert.equal(
+    direct.world.transform(direct.held.id, new Vector3(-1.97, 2, 0)),
+    true,
+    "vertical clearance is available beside the obstacle",
+  );
+  assert.equal(
+    direct.world.transform(direct.held.id, new Vector3(-1.82, 2, 0)),
+    true,
+    "the blocked horizontal step clears after lifting",
+  );
+  direct.world.world.free();
 
-  const result = moveWithAlignment(world, held.id, new Vector3(-1.7, 0.6, 0));
+  const assisted = await createScene();
+  const result = moveWithAlignment(
+    assisted.world,
+    assisted.held.id,
+    new Vector3(-1.7, 0.6, 0),
+  );
 
-  assert.equal(result.blocked, false);
+  assert.equal(
+    result.blocked,
+    false,
+    `auto-lift should clear the side contact; position=${assisted.held.position.toArray().join(",")}`,
+  );
   assert.equal(result.lifted, true);
-  assert.ok(held.position.y > 1.6, "brick climbs above the obstacle");
-  assert.ok(held.position.x > -1.9, "horizontal drag keeps progressing");
-  world.world.free();
+  assert.ok(assisted.held.position.y > 1.6, "brick climbs above the obstacle");
+  assert.ok(
+    assisted.held.position.x > -1.9,
+    "horizontal drag keeps progressing",
+  );
+  assisted.world.world.free();
 });
