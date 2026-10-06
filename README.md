@@ -18,6 +18,7 @@ Built with TypeScript, Three.js, and Rapier. Runs entirely in the browser and bu
 - A wide brick can attach to multiple supports in one press.
 - English and Turkish interfaces, remembered locally.
 - JSON save/open, a physics pause button, and an interactive connection example.
+- **Download manual** creates an illustrated PDF from the current scene: a color-specific parts inventory, deterministic construction steps, close-ups, top views, and the final scene layout. It runs locally in the browser and also works on GitHub Pages. [How the building manual works](docs/building-manual.md).
 
 ## Parts
 

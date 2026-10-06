@@ -22,6 +22,7 @@ import { catalog, colors, partLabel } from "./engine/catalog";
 import { component } from "./engine/connections";
 import { messages, type Language } from "./i18n";
 import { setupMobile } from "./mobile";
+import { setupManual } from "./manual/ui";
 import type { TouchPoint } from "./input/touch";
 import "./style.css";
 import "./mobile.css";
@@ -297,6 +298,7 @@ function translate() {
   $<HTMLSelectElement>("#part-filter").value = partFilter;
   renderCards();
   mobile?.translate();
+  manual.translate();
   dirty = true;
 }
 const previewPart = partPreviews();
@@ -646,6 +648,11 @@ $("#save").onclick = () => {
   toast(text("saved"));
 };
 $("#load").onclick = () => $<HTMLInputElement>("#file").click();
+const manual = setupManual({
+  snapshot: () => world.serialize(),
+  language: () => language,
+  toast,
+});
 $("#file").onchange = async () => {
   try {
     const file = $<HTMLInputElement>("#file").files?.[0];
