@@ -14,6 +14,15 @@ function solidCollider(s: Solid) {
       ).setTranslation(...(s.center as [number, number, number]))
     : R.ColliderDesc.convexHull(new Float32Array(s.vertices))!;
 }
+function compoundSolidCollider(parts: Solid[]) {
+  const children = parts.map(solidCollider);
+  return R.ColliderDesc.compound(
+    children.map((child) => child.shape),
+    children.map((child) => child.translation),
+    children.map((child) => child.rotation),
+    R.CompoundFlags.FIX_INTERNAL_EDGES,
+  );
+}
 export interface Brick extends Pose {
   body: R.RigidBody;
   mesh: T.Group;
@@ -189,15 +198,14 @@ export class BrickWorld {
         .setAngularDamping(0.35),
     );
     const h = spec.height;
-    for (const solid of solids(spec))
-      this.world.createCollider(
-        solidCollider(solid)
-          .setFriction(0.55)
-          .setRestitution(0.08)
-          .setDensity(0.65)
-          .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS),
-        body,
-      );
+    this.world.createCollider(
+      compoundSolidCollider(solids(spec))
+        .setFriction(0.55)
+        .setRestitution(0.08)
+        .setDensity(0.65)
+        .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS),
+      body,
+    );
     for (const p of connectors(spec))
       this.world.createCollider(
         R.ColliderDesc.cylinder(0.11, 0.3)
