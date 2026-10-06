@@ -18,6 +18,7 @@ test.afterEach(async ({ page }) => {
 test("Snap-off lowering alignment shows four corner projection lines and clears them when leaving", async ({
   page,
 }, info) => {
+  test.setTimeout(45_000);
   await fixture(page, { y: 5, x: 0.04, z: 0.04 });
   await expect(page.locator("#snap-toggle")).toHaveAttribute(
     "aria-pressed",

@@ -586,6 +586,9 @@ $("#snap-toggle").onclick = () => {
   cancelInteraction();
   snapEnabled = !snapEnabled;
   renderSnapButton();
+  // Toggling Snap while already held over a valid projection should reveal
+  // (or remove) the lowering hologram immediately, without requiring a nudge.
+  refreshAlignmentGuide();
 };
 /** The last rendered hologram is authoritative; never choose a new target here. */
 function acceptSnap() {
@@ -1055,7 +1058,9 @@ function frame(now: number) {
     const candidate = turning ? null : world.candidate(selected.id);
     snapPreview =
       snapEnabled && !turning && !pressing && !mobile?.cameraMode
-        ? world.snapCandidate(selected.id)
+        ? (alignmentGuide
+            ? world.loweringSnapCandidate(selected.id, alignmentGuide)
+            : null) ?? world.snapCandidate(selected.id)
         : null;
     if (snapPreview)
       hologram.show(

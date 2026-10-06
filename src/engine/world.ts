@@ -81,6 +81,7 @@ export class BrickWorld {
   private snapPreviews = new WeakMap<
     SnapCandidate,
     {
+      kind: "nearby" | "lowering";
       revision: number;
       members: Brick[];
       stationary: Brick;
@@ -595,6 +596,7 @@ export class BrickWorld {
       studs: c.surfaceFit.count,
     });
     this.snapPreviews.set(preview, {
+      kind: "nearby",
       revision: this.holdRevision,
       members: [...this.held].map((member) => this.get(member)),
       stationary: c.stationary,
@@ -630,43 +632,69 @@ export class BrickWorld {
       [...connected].some((member) => !this.held.has(member))
     )
       return false;
-    const fromBelow = this.held.has(preview.lowerId);
-    const moving = this.get(fromBelow ? preview.lowerId : preview.upperId);
-    // A final pointer move may arrive between the displayed frame and release.
-    // Accept it only when this same pair still resolves to the shown target.
-    const pair = this.pairCandidate(
-      id,
-      moving,
-      saved.stationary,
-      fromBelow,
-      1,
-      0.6,
-    );
-    if (
-      !pair ||
-      !samePosition(pair.fit.position, preview.position) ||
-      !sameRotation(pair.fit.rotation, preview.rotation)
-    )
-      return false;
-    const swept = this.sweptPoses(
-      id,
-      new T.Vector3().copy(preview.position),
-      new T.Quaternion().copy(preview.rotation),
-    );
-    if (
-      !swept ||
-      [...saved.poses].some(([member, target]) => {
-        const current = swept.get(member);
+
+    const sameSavedPoses = (poses: TargetPoses) =>
+      poses.size === saved.poses.size &&
+      [...saved.poses].every(([member, target]) => {
+        const current = poses.get(member);
         return (
-          !current ||
-          !samePosition(current.p, target.p) ||
-          !sameRotation(current.q, target.q)
+          !!current &&
+          samePosition(current.p, target.p) &&
+          sameRotation(current.q, target.q)
         );
-      }) ||
-      !this.clearAt(saved.poses)
-    )
-      return false;
-    const contacts = this.contactsAt(saved.poses);
+      });
+
+    let contacts: { a: Brick; b: Brick; studs: number }[];
+    if (saved.kind === "lowering") {
+      // Projection snaps may start far above the studs. Re-resolve the current
+      // lowering guide and require it to lead to the exact hologram that was shown.
+      const guide = this.loweringAlignment(id);
+      if (
+        !guide ||
+        guide.memberId !== preview.upperId ||
+        guide.lowerId !== preview.lowerId
+      )
+        return false;
+      const target = this.loweringTarget(id, guide);
+      const root = target?.poses.get(id);
+      if (
+        !target ||
+        !root ||
+        !samePosition(root.p, preview.position) ||
+        !sameRotation(root.q, preview.rotation) ||
+        !sameSavedPoses(target.poses)
+      )
+        return false;
+      contacts = target.contacts;
+    } else {
+      const fromBelow = this.held.has(preview.lowerId);
+      const moving = this.get(fromBelow ? preview.lowerId : preview.upperId);
+      // A final pointer move may arrive between the displayed frame and release.
+      // Accept it only when this same pair still resolves to the shown target.
+      const pair = this.pairCandidate(
+        id,
+        moving,
+        saved.stationary,
+        fromBelow,
+        1,
+        0.6,
+      );
+      if (
+        !pair ||
+        !samePosition(pair.fit.position, preview.position) ||
+        !sameRotation(pair.fit.rotation, preview.rotation)
+      )
+        return false;
+      const swept = this.sweptPoses(
+        id,
+        new T.Vector3().copy(preview.position),
+        new T.Quaternion().copy(preview.rotation),
+      );
+      if (!swept || !sameSavedPoses(swept) || !this.clearAt(saved.poses))
+        return false;
+      contacts = this.contactsAt(saved.poses);
+    }
+
     if (
       !contacts.some(
         (contact) =>
@@ -689,6 +717,7 @@ export class BrickWorld {
     this.release();
     return true;
   }
+
   /** Check only occupied height ranges, so a guide high above the scene stays cheap. */
   private clearLowering(poses: TargetPoses, drop: number) {
     const bounds = (box: OBB) => {
@@ -795,6 +824,77 @@ export class BrickWorld {
     }
     return null;
   }
+  /** Resolve the exact final assembly pose represented by a lowering guide. */
+  private loweringTarget(id: number, guide: LoweringAlignment) {
+    if (
+      !this.held.has(id) ||
+      !this.held.has(guide.memberId) ||
+      this.held.has(guide.lowerId)
+    )
+      return null;
+    const aligned = this.sweptPoses(id, guide.position);
+    if (!aligned || !this.clearLowering(aligned, guide.drop)) return null;
+    const poses: TargetPoses = new Map(
+      [...aligned].map(([member, { p, q }]) => [
+        member,
+        {
+          p: p.clone().add(new T.Vector3(0, -guide.drop, 0)),
+          q: q.clone(),
+        },
+      ]),
+    );
+    const contacts = this.contactsAt(poses);
+    const primary = contacts.find(
+      (contact) =>
+        contact.a.id === guide.memberId && contact.b.id === guide.lowerId,
+    );
+    if (!primary) return null;
+    return { poses, contacts, primary };
+  }
+
+  /**
+   * Snap-mode companion to the planar lowering guide. Unlike nearby snap,
+   * this can preview a connection several units below the held assembly.
+   */
+  loweringSnapCandidate(
+    id: number,
+    guide: LoweringAlignment,
+  ): SnapCandidate | null {
+    const target = this.loweringTarget(id, guide);
+    if (!target) return null;
+    const stationary = this.get(guide.lowerId);
+    const root = target.poses.get(id);
+    if (!root) return null;
+    const rootPose = snapshotPose(id, root.p, root.q);
+    const preview: SnapCandidate = Object.freeze({
+      rootId: id,
+      position: rootPose.position,
+      rotation: rootPose.rotation,
+      poses: Object.freeze(
+        [...target.poses].map(([member, { p, q }]) =>
+          snapshotPose(member, p, q),
+        ),
+      ),
+      upperId: target.primary.a.id,
+      lowerId: target.primary.b.id,
+      stationaryId: stationary.id,
+      studs: target.primary.studs,
+    });
+    this.snapPreviews.set(preview, {
+      kind: "lowering",
+      revision: this.holdRevision,
+      members: [...this.held].map((member) => this.get(member)),
+      stationary,
+      anchor: snapshotPose(
+        stationary.id,
+        stationary.position,
+        stationary.rotation,
+      ),
+      poses: target.poses,
+    });
+    return preview;
+  }
+
   connect(a: Brick, b: Brick, studs: number) {
     for (const id of [
       ...component(a.id, this.links),

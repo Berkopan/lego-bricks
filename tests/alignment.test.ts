@@ -145,3 +145,48 @@ test("guides respect empty arch sockets and the smooth front of slopes", async (
   assert.ok(world.loweringAlignment(held.id));
   world.world.free();
 });
+
+
+test("a high lowering guide becomes a snap hologram target and commits that exact lowered pose", async () => {
+  const world = await scene();
+  const lower = world.add(spec("2x2"), "#df553e", new Vector3(0, 0.6, 0));
+  const upper = world.add(spec("2x2"), "#66846b", new Vector3(0.04, 5, 0.04));
+  world.grab(upper.id);
+  assert.equal(
+    world.snapCandidate(upper.id),
+    null,
+    "legacy nearby snap should not reach several units downward",
+  );
+  const guide = world.loweringAlignment(upper.id)!;
+  assert.ok(guide);
+  const preview = world.loweringSnapCandidate(upper.id, guide)!;
+  assert.ok(preview);
+  assert.equal(preview.upperId, upper.id);
+  assert.equal(preview.lowerId, lower.id);
+  assert.ok(
+    Math.abs(preview.position.y - (guide.position.y - guide.drop)) < 1e-6,
+  );
+  assert.equal(world.links.length, 0);
+  assert.equal(world.commitSnap(upper.id, preview), true);
+  assert.equal(world.links.length, 1);
+  assert.equal(world.held.size, 0);
+  assert.ok(
+    upper.position.distanceTo(new Vector3().copy(preview.position)) < 1e-5,
+  );
+  world.world.free();
+});
+
+test("a lowering snap preview is rejected if its support moves before release", async () => {
+  const world = await scene();
+  const lower = world.add(spec("2x2"), "#df553e", new Vector3(0, 0.6, 0));
+  const upper = world.add(spec("2x2"), "#66846b", new Vector3(0.04, 5, 0.04));
+  world.grab(upper.id);
+  const guide = world.loweringAlignment(upper.id)!;
+  const preview = world.loweringSnapCandidate(upper.id, guide)!;
+  lower.body.setTranslation({ x: 0.5, y: 0.6, z: 0 }, true);
+  world.sync();
+  assert.equal(world.commitSnap(upper.id, preview), false);
+  assert.equal(world.links.length, 0);
+  assert.equal(world.held.size, 1);
+  world.world.free();
+});
