@@ -5,6 +5,7 @@ import { catalog, connectors, type BrickSpec } from "./catalog";
 import { component, mating, type Link, type Pose } from "./connections";
 import { overlapDepth, bottomOf } from "./overlap";
 import { brickMesh } from "./geometry";
+import { GroundSupport } from "./ground";
 import { solids, type Solid } from "./solids";
 import { loweringFit } from "./alignment";
 function solidCollider(s: Solid) {
@@ -80,8 +81,7 @@ export class BrickWorld {
   private elapsed = 0;
   private impactTimes = new Map<string, number>();
   private quietUntil = new Map<number, number>();
-  private groundChecked = new Set<number>();
-  private groundRestFrames = new Map<number, number>();
+  private groundSupports = new Map<BrickSpec, GroundSupport>();
   private holdRevision = 0;
   private snapPreviews = new WeakMap<
     SnapCandidate,
@@ -209,6 +209,8 @@ export class BrickWorld {
         body,
       );
     const mesh = brickMesh(spec, color);
+    if (!this.groundSupports.has(spec))
+      this.groundSupports.set(spec, new GroundSupport(mesh));
     this.scene.add(mesh);
     const b = {
       id: this.nextId++,
@@ -281,6 +283,21 @@ export class BrickWorld {
         .join(":");
       impacts.set(key, Math.max(impacts.get(key) ?? 0, speed));
     });
+    for (const brick of this.correctGroundPenetration()) {
+      const motion = incoming.get(brick.body.handle)!;
+      // A rendered surface can meet the floor before its physics hull reports
+      // a contact. Keep that landing audible, using the same component key and
+      // cooldown as Rapier events. Only an incoming fall counts: resting slides
+      // and repeated tiny support corrections are not new impacts.
+      if (
+        motion.velocity.y >= -1.2 ||
+        (this.quietUntil.get(brick.id) ?? 0) > this.elapsed
+      )
+        continue;
+      const key = `0:${motion.group}`;
+      const speed = motion.velocity.length() + motion.spin;
+      impacts.set(key, Math.max(impacts.get(key) ?? 0, speed));
+    }
     for (const [key, speed] of impacts) {
       if (this.elapsed - (this.impactTimes.get(key) ?? -Infinity) < 0.25)
         continue;
@@ -292,78 +309,69 @@ export class BrickWorld {
     for (const [id, time] of this.quietUntil)
       if (this.elapsed > time) this.quietUntil.delete(id);
     this.sync();
-    this.correctSleepingGroundPenetration();
     for (const b of [...this.bricks]) if (b.position.y < -30) this.remove(b.id);
   }
   /**
-   * Rapier can settle a rotated multi-collider body with a small residual floor
-   * penetration before its formal sleeping flag flips. The round brick makes
-   * this especially visible because the rendered rim is smoother than the
-   * convex pieces used by physics.
-   *
-   * Wait for a whole linked component to stay effectively still for 30 physics
-   * steps, then measure the real rendered geometry once. If it crossed y=0,
-   * lift the complete component rigidly and put it to sleep. External contacts
-   * will wake it normally later.
+   * Resolve residual floor penetration before any solver pose reaches a mesh.
+   * Fixed-joint/contact convergence can briefly bury a loaded assembly, and
+   * curved rendered rims extend beyond their coarser physics hulls. Waiting for
+   * rest exposes those poses for several frames after an attachment or drop.
+   * Keep each component rigid and preserve its tangential/rotational motion;
+   * Rapier still handles contacts, bouncing and sleeping normally.
    */
-  private correctSleepingGroundPenetration() {
+  private correctGroundPenetration(seeds: Brick[] = this.bricks) {
     const visited = new Set<number>();
-    let corrected = false;
-    for (const seed of this.bricks) {
+    const contacts: Brick[] = [];
+    for (const seed of seeds) {
       if (visited.has(seed.id)) continue;
       const ids = component(seed.id, this.links);
       for (const id of ids) visited.add(id);
       const members = [...ids].map((id) => this.get(id));
       if (
-        members.some((brick) => this.held.has(brick.id) || !brick.body.isDynamic())
-      ) {
-        for (const id of ids) {
-          this.groundChecked.delete(id);
-          this.groundRestFrames.delete(id);
-        }
+        members.some(
+          (brick) => this.held.has(brick.id) || !brick.body.isDynamic(),
+        )
+      )
         continue;
-      }
 
-      const resting = members.every(
-        (brick) =>
-          new T.Vector3().copy(brick.body.linvel()).lengthSq() < 0.0004 &&
-          new T.Vector3().copy(brick.body.angvel()).lengthSq() < 0.0004,
-      );
-      if (!resting) {
-        for (const id of ids) {
-          this.groundChecked.delete(id);
-          this.groundRestFrames.delete(id);
+      let bottom = -1e-5;
+      let downwardSpeed = 0;
+      let contact: Brick | undefined;
+      for (const brick of members) {
+        const support = this.groundSupports.get(brick.spec)!;
+        const p = brick.body.translation();
+        // The floor has finite x/z extents. An entirely out-of-bounds brick
+        // must remain free to fall through the existing below-world cleanup.
+        if (p.y >= support.radius) continue;
+        const rotation = brick.body.rotation();
+        if (!support.overlapsFloor(p, rotation)) continue;
+        const candidate = support.bottom(p, rotation);
+        if (candidate < bottom) {
+          bottom = candidate;
+          downwardSpeed = Math.min(0, brick.body.linvel().y);
+          contact = brick;
         }
-        continue;
       }
-      if (members.every((brick) => this.groundChecked.has(brick.id))) continue;
-
-      const restFrames =
-        Math.min(
-          ...members.map((brick) => this.groundRestFrames.get(brick.id) ?? 0),
-        ) + 1;
-      for (const id of ids) this.groundRestFrames.set(id, restFrames);
-      if (restFrames < 30) continue;
-
-      const bottom = Math.min(
-        ...members.map(
-          (brick) => new T.Box3().setFromObject(brick.mesh).min.y,
-        ),
-      );
-      for (const id of ids) this.groundChecked.add(id);
-      if (bottom >= -0.003) continue;
+      if (!contact) continue;
+      contacts.push(contact);
 
       const lift = 0.001 - bottom;
       for (const brick of members) {
         const p = brick.body.translation();
         brick.body.setTranslation({ x: p.x, y: p.y + lift, z: p.z }, false);
-        brick.body.setLinvel({ x: 0, y: 0, z: 0 }, false);
-        brick.body.setAngvel({ x: 0, y: 0, z: 0 }, false);
-        brick.body.sleep();
+        // Apply one common normal-velocity correction so joints retain their
+        // relative motion. Otherwise gravity can accumulate downward speed
+        // while a detailed rim rests above its coarse collision hull.
+        if (downwardSpeed < 0) {
+          const v = brick.body.linvel();
+          brick.body.setLinvel(
+            { x: v.x, y: v.y - downwardSpeed, z: v.z },
+            false,
+          );
+        }
       }
-      corrected = true;
     }
-    if (corrected) this.sync();
+    return contacts;
   }
   get(id: number) {
     return this.bricks.find((b) => b.id === id)!;
@@ -376,8 +384,6 @@ export class BrickWorld {
     this.release();
     this.held = component(id, this.links);
     for (const i of this.held) {
-      this.groundChecked.delete(i);
-      this.groundRestFrames.delete(i);
       const b = this.get(i);
       b.body.setBodyType(R.RigidBodyType.KinematicPositionBased, true);
       // Editing uses clearAt/sweptPoses for collision safety. Making the held
@@ -390,16 +396,18 @@ export class BrickWorld {
   }
   release() {
     this.holdRevision++;
-    for (const i of this.held) {
-      this.groundChecked.delete(i);
-      this.groundRestFrames.delete(i);
-      const b = this.get(i);
+    const released = [...this.held].map((id) => this.get(id));
+    for (const b of released) {
       this.setBodySensors(b.body, false);
       b.body.setBodyType(R.RigidBodyType.Dynamic, true);
       b.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       b.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
     }
     this.held.clear();
+    if (released.length) {
+      this.correctGroundPenetration(released);
+      this.sync();
+    }
   }
   obb(b: Brick, p = b.position, q = b.rotation) {
     return new OBB(
@@ -956,11 +964,7 @@ export class BrickWorld {
     }
     options.sort((a, b) => a.distance - b.distance || a.drop - b.drop);
     for (const { distance: _distance, ...option } of options) {
-      const aligned = this.sweptPoses(
-        id,
-        option.position,
-        option.rotation,
-      );
+      const aligned = this.sweptPoses(id, option.position, option.rotation);
       if (aligned && this.clearLowering(aligned, option.drop)) return option;
     }
     return null;
@@ -1146,8 +1150,6 @@ export class BrickWorld {
     for (const l of this.links.filter((l) => l.a === id || l.b === id))
       this.world.removeImpulseJoint(l.joint, true);
     this.links = this.links.filter((l) => l.a !== id && l.b !== id);
-    this.groundChecked.delete(id);
-    this.groundRestFrames.delete(id);
     this.world.removeRigidBody(b.body);
     this.scene.remove(b.mesh);
     b.mesh.traverse((o) => {

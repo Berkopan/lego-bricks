@@ -23,12 +23,17 @@ export default defineConfig({
         "**/snap.spec.ts",
         "**/alignment.spec.ts",
         "**/manual.spec.ts",
+        "**/ground.spec.ts",
       ],
       use: { viewport: { width: 1280, height: 900 } },
     },
     {
       name: "mobile",
-      testMatch: ["**/mobile.spec.ts", "**/manual.spec.ts"],
+      testMatch: [
+        "**/mobile.spec.ts",
+        "**/manual.spec.ts",
+        "**/ground.spec.ts",
+      ],
       use: {
         viewport: { width: 390, height: 844 },
         isMobile: true,
