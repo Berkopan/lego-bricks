@@ -19,11 +19,19 @@ test.afterEach(async ({ page }) => {
 });
 
 async function enableSnap(page: Page) {
-  await page.locator("#snap-toggle").click();
-  await expect(page.locator("#snap-toggle")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  const toggle = page.locator("#snap-toggle");
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") {
+    await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+}
+
+async function disableSnap(page: Page) {
+  const toggle = page.locator("#snap-toggle");
+  if ((await toggle.getAttribute("aria-pressed")) !== "false") {
+    await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
 }
 
 async function expectDisplayedCommit(
@@ -50,13 +58,14 @@ async function expectDisplayedCommit(
   await expect.poll(async () => (await state(page)).ghost).toBe(false);
 }
 
-test("Snap starts off and ordinary drag release keeps the legacy held behavior", async ({
+test("Snap starts on and can be disabled for the legacy held behavior", async ({
   page,
 }) => {
   await expect(page.locator("#snap-toggle")).toHaveAttribute(
     "aria-pressed",
-    "false",
+    "true",
   );
+  await disableSnap(page);
   await fixture(page);
   await drag(page);
   const moved = await state(page);
@@ -121,6 +130,7 @@ test("Snap turns a lowering projection into a final-pose hologram and drag relea
 test("a lowering projection remains guide-only when Snap is off", async ({
   page,
 }) => {
+  await disableSnap(page);
   await fixture(page, { y: 5, x: 0.04, z: 0.04 });
   await expect(page.locator("#snap-toggle")).toHaveAttribute(
     "aria-pressed",
