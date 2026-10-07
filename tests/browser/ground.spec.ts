@@ -16,6 +16,8 @@ declare global {
 test("Snap release keeps a loaded bridge above the floor in every live physics step", async ({
   page,
 }, info) => {
+  // Software-rendered CI needs enough wall time for all 240 live physics steps.
+  test.setTimeout(60_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await setup(page);
@@ -143,7 +145,7 @@ test("Snap release keeps a loaded bridge above the floor in every live physics s
   else await pause.click();
   await expect(pause).not.toHaveClass(/paused/);
   await page.waitForFunction(() => window.groundProbe.steps >= 240, undefined, {
-    timeout: 20_000,
+    timeout: 40_000,
   });
   if (mobile) await pause.tap();
   else await pause.click();
