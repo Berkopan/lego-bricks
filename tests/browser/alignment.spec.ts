@@ -15,10 +15,19 @@ test.afterEach(async ({ page }) => {
   expect(errors.get(page) ?? [], "No uncaught browser errors").toEqual([]);
 });
 
+async function setSnap(page: Page, enabled: boolean) {
+  const toggle = page.locator("#snap-toggle");
+  if ((await toggle.getAttribute("aria-pressed")) !== String(enabled)) {
+    await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute("aria-pressed", String(enabled));
+}
+
 test("Snap-off lowering alignment shows four corner projection lines and clears them when leaving", async ({
   page,
 }, info) => {
   test.setTimeout(45_000);
+  await setSnap(page, false);
   await fixture(page, { y: 5, x: 0.04, z: 0.04 });
   await expect(page.locator("#snap-toggle")).toHaveAttribute(
     "aria-pressed",
@@ -49,6 +58,7 @@ test("connected held and stationary assemblies render projection guides for the 
   page,
 }, info) => {
   test.setTimeout(45_000);
+  await setSnap(page, false);
   await page.evaluate(async () => {
     const [{ catalog }, { Vector3 }] = await Promise.all([
       import("/src/engine/catalog.ts"),
@@ -166,11 +176,7 @@ test("complex settled assembly projects before the brick enters nearby Snap rang
   expect((await state(page)).ghost).toBe(false);
   await expect.poll(async () => (await state(page)).projection).toBe(true);
 
-  await page.locator("#snap-toggle").click();
-  await expect(page.locator("#snap-toggle")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  await setSnap(page, true);
   await expect.poll(async () => (await state(page)).ghost).toBe(true);
   const current = await state(page);
   expect(current.target).not.toBeNull();
