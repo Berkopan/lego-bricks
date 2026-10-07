@@ -118,6 +118,7 @@ test("complex settled assembly projects before the brick enters nearby Snap rang
   page,
 }, info) => {
   test.setTimeout(45_000);
+  await setSnap(page, false);
   await page.evaluate(async () => {
     const [{ catalog }, { Quaternion, Vector3 }] = await Promise.all([
       import("/src/engine/catalog.ts"),
