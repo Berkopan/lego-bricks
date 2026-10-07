@@ -31,7 +31,15 @@ test("Snap release keeps a loaded bridge above the floor in every live physics s
       import(catalogPath),
       import(threePath),
     ]);
-    const { world, select, camera } = window.__bricks;
+    const { world, select, camera, renderer } = window.__bricks;
+    const rendering = {
+      pixelRatio: renderer.getPixelRatio(),
+      shadows: renderer.shadowMap.enabled,
+    };
+    // Reduce software-rendering cost while preserving geometry, the CSS
+    // viewport and live physics.
+    renderer.setPixelRatio(0.5);
+    renderer.shadowMap.enabled = false;
     select(null);
     world.clear();
     const add = (part: string, x: number, y: number, color = "#383c43") =>
@@ -111,7 +119,7 @@ test("Snap release keeps a loaded bridge above the floor in every live physics s
       probe.steps++;
       probe.sample();
     };
-    return { baseId: leftBase.id, baseY: leftBase.position.y };
+    return { baseId: leftBase.id, baseY: leftBase.position.y, rendering };
   });
   await frames(page);
   const snap = page.locator("#snap-toggle");
@@ -173,6 +181,12 @@ test("Snap release keeps a loaded bridge above the floor in every live physics s
   expect(result.links).toBe(12);
   expect(errors).toEqual([]);
 
+  await page.evaluate(({ pixelRatio, shadows }) => {
+    const { renderer } = window.__bricks;
+    renderer.setPixelRatio(pixelRatio);
+    renderer.shadowMap.enabled = shadows;
+  }, fixture.rendering);
+  await frames(page);
   const screenshot = info.outputPath("ground-bridge-after-snap.png");
   await page.screenshot({ path: screenshot });
   await info.attach("ground-bridge-after-snap", {
