@@ -70,13 +70,16 @@ async function center(page: Page, selector: string) {
   expect(box, `${selector} must be visible and hittable`).not.toBeNull();
   return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
 }
-async function enableSnap(page: Page) {
-  await page.locator("#snap-toggle").tap();
-  await expect(page.locator("#snap-toggle")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+async function setSnap(page: Page, enabled: boolean) {
+  const toggle = page.locator("#snap-toggle");
+  if ((await toggle.getAttribute("aria-pressed")) !== String(enabled)) {
+    await toggle.tap();
+  }
+  await expect(toggle).toHaveAttribute("aria-pressed", String(enabled));
   await frames(page);
+}
+async function enableSnap(page: Page) {
+  await setSnap(page, true);
 }
 async function dragTouch(page: Page, fingers: Fingers) {
   const point = await brickPoint(page);
@@ -183,10 +186,7 @@ test("mobile UI disables text selection and long-press copy surfaces", async ({
 test("touch drag with Snap off keeps the moved brick held and creates no hologram or joint", async ({
   page,
 }) => {
-  await expect(page.locator("#snap-toggle")).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
+  await setSnap(page, false);
   await fixture(page);
   await withFingers(page, async (fingers) => {
     await dragTouch(page, fingers);
