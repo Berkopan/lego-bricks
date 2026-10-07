@@ -123,8 +123,6 @@ test("Snap release keeps a loaded bridge above the floor in every live physics s
   });
   await frames(page);
   const snap = page.locator("#snap-toggle");
-  if (mobile) await snap.tap();
-  else await snap.click();
   await expect(snap).toHaveAttribute("aria-pressed", "true");
   await expect.poll(async () => (await state(page)).ghost).toBe(true);
   const shown = await state(page);
