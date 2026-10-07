@@ -124,6 +124,15 @@ test("Snap release keeps a loaded bridge above the floor in every live physics s
   await frames(page);
   const snap = page.locator("#snap-toggle");
   await expect(snap).toHaveAttribute("aria-pressed", "true");
+  // On mobile, preserve the interaction reset the previous opt-in flow provided
+  // before exercising the touch height-release Snap path.
+  if (mobile) {
+    await snap.tap();
+    await expect(snap).toHaveAttribute("aria-pressed", "false");
+    await snap.tap();
+    await expect(snap).toHaveAttribute("aria-pressed", "true");
+    await frames(page);
+  }
   await expect.poll(async () => (await state(page)).ghost).toBe(true);
   const shown = await state(page);
   expect(shown.links).toBe(11);
